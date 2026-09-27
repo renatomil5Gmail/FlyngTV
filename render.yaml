@@ -16,5 +16,11 @@ services:
         sync: false
       - key: MERCADOPAGO_WEBHOOK_SECRET
         sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPORTE_WHATSAPP
+        value: "552799763143"
       - key: PIX_EXPIRATION_MINUTES
         value: 30

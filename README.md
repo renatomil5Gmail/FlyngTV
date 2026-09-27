@@ -18,8 +18,11 @@ Sem o token, a página e as funções de cadastro/consulta funcionam, mas a gera
 - O Pix recebe expiração explícita de 30 minutos por padrão (`PIX_EXPIRATION_MINUTES`, configurável entre 10 minutos e 24 horas); a tela usa a expiração devolvida pelo Mercado Pago para parar a espera e permitir gerar outro código.
 - A confirmação é consultada pelo servidor e também recebida pelo webhook. Uma transação aprovada ativa a vigência do cliente pelo número de meses contratado; renovações somam ao fim da vigência atual, e reentregas de webhook/consultas repetidas não somam o mesmo pagamento outra vez.
 - O endpoint `POST /webhook/mercadopago` valida a assinatura HMAC, consulta o pagamento no Mercado Pago e atualiza a transação. Configure `MERCADOPAGO_WEBHOOK_SECRET` no ambiente do servidor.
+- Os links de suporte buscam o primeiro telefone em `public."Contato"` pelo PostgREST do Supabase. Configure `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` no Render; a chave `service_role` fica somente no backend. `SUPORTE_WHATSAPP` pode ser usado como fallback opcional.
 
-**Integração pendente:** a vigência é gravada neste momento na tabela SQLite `clientes`. A sincronização com o Live21 ainda não está implementada e precisa das credenciais/documentação de API do Live21. O SQLite do serviço Free do Render não é armazenamento persistente; antes de depender dos cadastros e vencimentos em produção, migre para um banco persistente e configure `DATABASE_PATH`/conexão de produção conforme o novo backend.
+**Integração pendente:** o formulário de teste grátis está pronto, mas o endpoint retorna indisponibilidade até receber documentação oficial e credenciais da API Live21. Nenhuma rota ou payload da Live21 foi presumida, e não se cria um cadastro local como se o teste tivesse sido liberado. O SQLite do serviço Free do Render não é armazenamento persistente; antes de depender dos cadastros e vencimentos em produção, migre para um banco persistente e configure `DATABASE_PATH`/conexão de produção conforme o novo backend.
+
+**Arte em movimento:** a arte atual é um único JPEG achatado. A página aplica movimento suave ao fundo e animações decorativas. Para mover objetos específicos da própria arte (estrela, bola, pipoca, controle etc.), forneça os objetos separados em PNG transparente/SVG e um fundo sem esses objetos, ou o arquivo-fonte em camadas (PSD/AI).
 
 ## Render grátis para testes
 

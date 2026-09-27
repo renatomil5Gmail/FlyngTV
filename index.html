@@ -30,8 +30,12 @@
       overflow-x: hidden;
       color: var(--ink);
       font-family: "DM Sans", sans-serif;
-      background: #071638 url("/arte.jpg") center / cover fixed no-repeat;
+      background: #071638;
     }
+    .art-layer { position: fixed; inset: -3%; z-index: 0; overflow: hidden; pointer-events: none; background: #071638 url("/arte.jpg") center / cover no-repeat; animation: art-drift 38s ease-in-out infinite alternate; will-change: transform; }
+    .art-layer::after { position: absolute; inset: 0; content: ""; background: radial-gradient(circle at 18% 24%, rgba(22,119,232,.14), transparent 32%), radial-gradient(circle at 82% 75%, rgba(171,59,255,.14), transparent 35%); mix-blend-mode: screen; }
+    .art-orb { position: absolute; width: var(--orb-size); aspect-ratio: 1; left: var(--orb-x); top: var(--orb-y); border: 1px solid rgba(127,205,255,.5); border-radius: 50%; background: radial-gradient(circle at 32% 28%, rgba(255,255,255,.66), rgba(65,162,255,.17) 22%, rgba(91,48,255,.1) 60%, transparent 72%); box-shadow: 0 0 30px rgba(60,170,255,.2), inset 0 0 24px rgba(102,181,255,.15); opacity: var(--orb-opacity); animation: orb-float var(--orb-duration) ease-in-out infinite alternate; animation-delay: var(--orb-delay); }
+    .art-orb::after { position: absolute; top: 22%; left: 18%; width: 18%; aspect-ratio: 1; border-radius: 50%; background: rgba(255,255,255,.76); filter: blur(2px); content: ""; }
     body::before {
       position: fixed;
       inset: 0;
@@ -42,7 +46,7 @@
     }
     button, input, select { font: inherit; }
     button { cursor: pointer; }
-    .shell { width: min(100%, 920px); animation: arrive .7s cubic-bezier(.2,.75,.25,1) both; }
+    .shell { position: relative; z-index: 1; width: min(100%, 920px); animation: arrive .7s cubic-bezier(.2,.75,.25,1) both; }
     .topline { display: flex; align-items: center; justify-content: space-between; margin: 0 8px 14px; color: white; text-shadow: 0 2px 14px rgba(0,0,0,.4); }
     .brand { display: inline-flex; align-items: center; gap: 10px; font: 800 19px Manrope, sans-serif; letter-spacing: -.5px; }
     .brand-mark { display: grid; width: 35px; height: 35px; place-items: center; border: 1px solid rgba(255,255,255,.45); border-radius: 12px; background: rgba(255,255,255,.17); backdrop-filter: blur(8px); }
@@ -85,6 +89,10 @@
     input:focus, select:focus { border-color: #63aaf5; box-shadow: 0 0 0 4px rgba(22,119,232,.1); }
     .inline-note { margin: 9px 0 0; color: var(--muted); font-size: 12px; }
     .error { min-height: 19px; margin: 9px 0 0; color: #c3344a; font-size: 13px; }
+      .support-callout { margin: 14px 0; padding: 13px 15px; border: 1px solid rgba(22,119,232,.18); border-radius: 14px; color: #46536f; background: rgba(237,246,255,.78); font-size: 13px; line-height: 1.55; }
+      .support-callout a { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; color: #08784f; font-weight: 800; text-decoration: none; }
+      .support-callout a:hover { text-decoration: underline; }
+      .support-callout[hidden] { display: none; }
     .section-head { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin-bottom: 22px; }
     .section-head .lead { margin-bottom: 0; }
     .client-chip { flex: 0 0 auto; padding: 9px 12px; border: 1px solid #d8e9fb; border-radius: 99px; color: #185ca5; background: #eef7ff; font-size: 12px; font-weight: 700; }
@@ -119,8 +127,10 @@
     @keyframes fade-up { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes spin { to { transform: rotate(360deg); } }
     @keyframes pop { from { opacity: 0; transform: scale(.5); } to { opacity: 1; transform: scale(1); } }
+      @keyframes art-drift { from { transform: scale(1.02) translate3d(-.5%, -.35%, 0); } to { transform: scale(1.09) translate3d(.7%, .55%, 0); } }
+      @keyframes orb-float { from { transform: translate3d(-14px, 9px, 0) scale(.94); } to { transform: translate3d(18px, -16px, 0) scale(1.08); } }
     @media (max-width: 690px) {
-      body { padding: 18px 12px; background-attachment: scroll; }
+      body { padding: 18px 12px; }
       .topline { margin: 0 5px 11px; }
       .panel { min-height: unset; padding: 27px 21px; border-radius: 23px; }
       .benefits { grid-template-columns: 1fr; gap: 8px; }
@@ -154,6 +164,12 @@
   </style>
 </head>
 <body>
+  <div class="art-layer" aria-hidden="true">
+    <span class="art-orb" style="--orb-size:clamp(90px,14vw,190px);--orb-x:8%;--orb-y:13%;--orb-opacity:.5;--orb-duration:11s;--orb-delay:-2s"></span>
+    <span class="art-orb" style="--orb-size:clamp(65px,10vw,135px);--orb-x:77%;--orb-y:14%;--orb-opacity:.42;--orb-duration:14s;--orb-delay:-7s"></span>
+    <span class="art-orb" style="--orb-size:clamp(110px,17vw,230px);--orb-x:79%;--orb-y:70%;--orb-opacity:.35;--orb-duration:16s;--orb-delay:-4s"></span>
+    <span class="art-orb" style="--orb-size:clamp(55px,8vw,110px);--orb-x:12%;--orb-y:76%;--orb-opacity:.4;--orb-duration:12s;--orb-delay:-9s"></span>
+  </div>
   <main class="shell">
     <header class="topline">
       <div class="brand"><span class="brand-mark" aria-hidden="true">▶</span> PLAYTV <span style="font-weight:500;opacity:.82">+</span></div>
@@ -167,8 +183,10 @@
         <p class="lead">Escolha um combo e conclua seu cadastro em poucos passos. Se já é cliente, consulte seu número para renovar.</p>
         <div class="actions">
           <button class="btn btn-primary" type="button" data-go="view-cadastro">Quero escolher meu combo <span aria-hidden="true">→</span></button>
+          <button class="btn btn-secondary" type="button" data-go="view-teste-gratis">Quero teste grátis</button>
           <button class="btn btn-secondary" type="button" data-go="view-consulta">Já sou cliente</button>
         </div>
+        <div class="support-callout" data-support="generic" hidden>Precisa de ajuda para continuar?<br><a data-support-link target="_blank" rel="noopener noreferrer">Falar com o suporte no WhatsApp <span aria-hidden="true">↗</span></a></div>
         <div class="benefits">
           <div class="benefit"><span class="benefit-icon">✦</span><span class="benefit-copy"><strong>Combos para você</strong><span>Encontre o período ideal</span></span></div>
           <div class="benefit"><span class="benefit-icon">⌁</span><span class="benefit-copy"><strong>Pix fácil e seguro</strong><span>QR Code gerado na hora</span></span></div>
@@ -189,6 +207,7 @@
             <div class="field full"><label for="marca_tv">Onde vai assistir?</label><select id="marca_tv" name="marca_tv" required><option value="" disabled selected>Selecione seu dispositivo</option><option>Smart TV Samsung</option><option>Smart TV LG</option><option>Roku TV</option><option>Android TV / TV Box</option><option>Fire TV Stick</option><option>Celular ou tablet</option><option>Outro dispositivo</option></select></div>
           </div>
           <p class="error" id="cadastro-erro" role="alert"></p>
+          <div class="support-callout" data-support="registration" hidden>Se o cadastro não avançar, nossa equipe pode ajudar.<br><a data-support-link target="_blank" rel="noopener noreferrer">Falar com o suporte no WhatsApp <span aria-hidden="true">↗</span></a></div>
           <div class="actions"><button class="btn btn-primary" type="submit">Continuar para os combos <span aria-hidden="true">→</span></button><button class="btn btn-quiet" type="button" data-go="view-home">Voltar</button></div>
         </form>
       </div>
@@ -202,6 +221,24 @@
           <div class="field"><label for="telefone-consulta">WhatsApp com DDD</label><input id="telefone-consulta" type="tel" inputmode="tel" autocomplete="tel" placeholder="(11) 99999-9999" required></div>
           <p class="error" id="consulta-erro" role="alert"></p>
           <div class="actions"><button class="btn btn-primary" type="submit">Buscar cadastro <span aria-hidden="true">→</span></button><button class="btn btn-quiet" type="button" data-go="view-home">Voltar</button></div>
+        </form>
+      </div>
+
+      <div class="view hidden" id="view-teste-gratis">
+        <div class="progress" aria-label="Etapa 1 de 3"><span class="active"></span><span></span><span></span></div>
+        <p class="eyebrow">Experimente a PlayTV</p>
+        <h2>Solicite seu teste grátis.</h2>
+        <p class="lead">Informe seus dados. Quando a conexão oficial com a Live21 estiver ativa, o acesso será criado por lá.</p>
+        <form id="form-teste-gratis" novalidate>
+          <div class="form-grid">
+            <div class="field full"><label for="teste-nome">Nome completo</label><input id="teste-nome" name="nome" autocomplete="name" required minlength="2"></div>
+            <div class="field"><label for="teste-telefone">WhatsApp com DDD</label><input id="teste-telefone" name="telefone" type="tel" autocomplete="tel" inputmode="tel" placeholder="(11) 99999-9999" required></div>
+            <div class="field"><label for="teste-email">E-mail</label><input id="teste-email" name="email" type="email" autocomplete="email" required></div>
+            <div class="field full"><label for="teste-marca-tv">Onde vai assistir?</label><select id="teste-marca-tv" name="marca_tv" required><option value="" disabled selected>Selecione seu dispositivo</option><option>Smart TV Samsung</option><option>Smart TV LG</option><option>Roku TV</option><option>Android TV / TV Box</option><option>Fire TV Stick</option><option>Celular ou tablet</option><option>Outro dispositivo</option></select></div>
+          </div>
+          <p class="error" id="teste-erro" role="alert"></p>
+          <div class="support-callout" data-support="trial" hidden>O teste automático ainda não está disponível. Nossa equipe pode orientar você.<br><a data-support-link target="_blank" rel="noopener noreferrer">Chamar suporte no WhatsApp <span aria-hidden="true">↗</span></a></div>
+          <div class="actions"><button class="btn btn-primary" type="submit">Solicitar teste grátis</button><button class="btn btn-quiet" type="button" data-go="view-home">Voltar</button></div>
         </form>
       </div>
 
@@ -239,7 +276,7 @@
         <div class="summary"><span id="resumo-plano">Combo escolhido</span><strong id="resumo-valor">R$ 0,00</strong></div>
         <div class="checkout-grid">
           <div class="qr-wrap" id="qr-wrap"><div class="qr-placeholder"><span class="spinner" aria-hidden="true"></span>&nbsp; Gerando QR Code seguro…</div></div>
-          <div><label for="pix-copia-cola">Pix Copia e Cola</label><textarea class="pix-code" id="pix-copia-cola" readonly placeholder="O código aparecerá aqui após a geração do Pix."></textarea><button class="btn btn-secondary" id="copiar-pix" type="button" style="width:100%;margin-top:10px" disabled>Copiar código Pix</button><div class="wait-status" id="payment-status"><span class="spinner" aria-hidden="true"></span><span>Aguardando a confirmação do pagamento…</span></div><p class="error" id="pix-erro" role="alert"></p></div>
+          <div><label for="pix-copia-cola">Pix Copia e Cola</label><textarea class="pix-code" id="pix-copia-cola" readonly placeholder="O código aparecerá aqui após a geração do Pix."></textarea><button class="btn btn-secondary" id="copiar-pix" type="button" style="width:100%;margin-top:10px" disabled>Copiar código Pix</button><div class="wait-status" id="payment-status"><span class="spinner" aria-hidden="true"></span><span>Aguardando a confirmação do pagamento…</span></div><p class="error" id="pix-erro" role="alert"></p><div class="support-callout" data-support="payment" hidden>Está com dificuldade para gerar ou pagar o Pix?<br><a data-support-link target="_blank" rel="noopener noreferrer">Falar com o suporte no WhatsApp <span aria-hidden="true">↗</span></a></div></div>
         </div>
         <div class="plan-actions"><button class="btn btn-quiet" id="voltar-planos" type="button">Trocar combo</button><button class="btn btn-secondary hidden" id="tentar-novamente" type="button">Tentar novamente</button></div>
       </div>
@@ -263,7 +300,23 @@
       3: { nome: 'Combo Cinema', valor: 80 },
       6: { nome: 'Combo Premium', valor: 150 }
     };
-    const telefoneInputs = [document.getElementById('telefone'), document.getElementById('telefone-consulta')];
+    const telefoneInputs = [document.getElementById('telefone'), document.getElementById('telefone-consulta'), document.getElementById('teste-telefone')];
+
+    async function configurarSuporte() {
+      try {
+        const config = await api('/api/configuracao-publica');
+        if (!config.suporte_whatsapp) return;
+        let telefoneSuporte = String(config.suporte_whatsapp).replace(/\D/g, '');
+        if (telefoneSuporte.length === 10 || telefoneSuporte.length === 11) telefoneSuporte = `55${telefoneSuporte}`;
+        document.querySelectorAll('[data-support-link]').forEach((link) => {
+          link.href = `https://wa.me/${encodeURIComponent(telefoneSuporte)}`;
+        });
+        document.querySelectorAll('[data-support="generic"], [data-support="payment"]').forEach((callout) => { callout.hidden = false; });
+      } catch (error) {
+        console.warn('Não foi possível carregar o contato de suporte.');
+      }
+    }
+    configurarSuporte();
 
     function showView(id) {
       document.querySelectorAll('.view').forEach((view) => view.classList.toggle('hidden', view.id !== id));
@@ -313,6 +366,7 @@
         }
       } catch (error) {
         erro.textContent = error.message;
+        document.querySelector('[data-support="registration"]').hidden = false;
       } finally {
         submit.disabled = false;
       }
@@ -332,6 +386,33 @@
       state.clienteEncontrado = null;
     });
 
+    document.getElementById('form-teste-gratis').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const errorElement = document.getElementById('teste-erro');
+      const submit = form.querySelector('button[type="submit"]');
+      errorElement.textContent = '';
+      if (!form.reportValidity()) return;
+      const data = Object.fromEntries(new FormData(form).entries());
+      data.telefone = data.telefone.replace(/\D/g, '');
+      if (data.telefone.length < 10 || data.telefone.length > 13) {
+        errorElement.textContent = 'Confira o DDD e o número do WhatsApp.';
+        return;
+      }
+      submit.disabled = true;
+      submit.textContent = 'Verificando disponibilidade…';
+      try {
+        const result = await api('/api/teste-gratis', { method: 'POST', body: JSON.stringify(data) });
+        errorElement.textContent = result.mensagem || 'Solicitação recebida.';
+      } catch (error) {
+        errorElement.textContent = error.message;
+        document.querySelector('[data-support="trial"]').hidden = false;
+      } finally {
+        submit.disabled = false;
+        submit.textContent = 'Solicitar teste grátis';
+      }
+    });
+
     document.getElementById('form-consulta').addEventListener('submit', async (event) => {
       event.preventDefault();
       const erro = document.getElementById('consulta-erro');
@@ -345,7 +426,10 @@
           return;
         }
         setCliente(result.cliente);
-      } catch (error) { erro.textContent = error.message; }
+      } catch (error) {
+        erro.textContent = error.message;
+        document.querySelector('[data-support="generic"]').hidden = false;
+      }
     });
 
     document.querySelectorAll('.plan').forEach((button) => button.addEventListener('click', () => {
@@ -377,6 +461,7 @@
         await gerarPix();
       } catch (error) {
         erro.textContent = error.message;
+        document.querySelector('[data-support="registration"]').hidden = false;
       } finally {
         button.disabled = !state.plano;
         button.innerHTML = 'Continuar para pagamento <span aria-hidden="true">→</span>';
@@ -415,6 +500,7 @@
       } catch (error) {
         document.getElementById('qr-wrap').innerHTML = '<div class="qr-placeholder">Não foi possível gerar o QR Code.</div>';
         erro.textContent = error.message;
+        document.querySelector('[data-support="payment"]').hidden = false;
         retry.classList.remove('hidden');
       }
     }

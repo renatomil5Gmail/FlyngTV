@@ -29,8 +29,32 @@ app = FastAPI(title="PlayTV — Cadastro e pagamentos")
 logger = logging.getLogger(__name__)
 MP_ACCESS_TOKEN = os.getenv("MERCADOPAGO_TOKEN")
 MP_WEBHOOK_SECRET = os.getenv("MERCADOPAGO_WEBHOOK_SECRET")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 sdk = mercadopago.SDK(MP_ACCESS_TOKEN) if MP_ACCESS_TOKEN else None
 PLANOS = {1: ("Básico", 30.00), 3: ("Cinema", 80.00), 6: ("Premium", 150.00)}
+
+
+def carregar_telefone_suporte() -> str:
+    if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        return re.sub(r"\D", "", os.getenv("SUPORTE_WHATSAPP", ""))
+    try:
+        response = requests.get(
+            f"{SUPABASE_URL}/rest/v1/Contato",
+            params={"select": "telefone", "order": "created_at.asc", "limit": "1"},
+            headers={
+                "apikey": SUPABASE_SERVICE_ROLE_KEY,
+                "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+            },
+            timeout=5,
+        )
+        response.raise_for_status()
+        rows = response.json()
+        if isinstance(rows, list) and rows and isinstance(rows[0], dict):
+            return re.sub(r"\D", "", str(rows[0].get("telefone", "")))
+    except (requests.RequestException, ValueError, TypeError):
+        logger.exception("Falha ao buscar o telefone de suporte no Supabase.")
+    return re.sub(r"\D", "", os.getenv("SUPORTE_WHATSAPP", ""))
 
 
 def conectar_banco():
@@ -224,6 +248,32 @@ def arte():
 @app.get("/api/saude")
 def saude():
     return {"ok": True, "pagamentos_configurados": sdk is not None}
+
+
+@app.get("/api/configuracao-publica")
+def configuracao_publica():
+    telefone = carregar_telefone_suporte()
+    return {
+        "suporte_whatsapp": telefone or None,
+        "live21_configurada": False,
+    }
+
+
+@app.post("/api/teste-gratis")
+def solicitar_teste_gratis(req: CadastroClienteRequest):
+    with closing(conectar_banco()) as connection:
+        cliente = connection.execute(
+            "SELECT id FROM clientes WHERE telefone = ?", (req.telefone,)
+        ).fetchone()
+    if cliente is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Este WhatsApp já possui cadastro. Consulte seu cadastro ou fale com o suporte para solicitar o teste.",
+        )
+    raise HTTPException(
+        status_code=503,
+        detail="Ainda não é possível liberar o teste automaticamente porque falta configurar a integração oficial da Live21. Nenhum cadastro de teste foi criado. Fale com o suporte.",
+    )
 
 
 @app.get("/api/mercadopago/diagnostico")
