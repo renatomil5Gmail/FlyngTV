@@ -52,6 +52,7 @@
     .panel::before { position: absolute; top: -110px; right: -90px; width: 270px; height: 270px; border-radius: 50%; background: radial-gradient(circle, rgba(76,163,255,.12), transparent 68%); content: ""; pointer-events: none; }
     .view { position: relative; z-index: 1; animation: fade-up .34s ease both; }
     .hidden { display: none !important; }
+    [hidden] { display: none !important; }
     .eyebrow { margin: 0 0 10px; color: var(--blue); font-size: 11px; font-weight: 800; letter-spacing: .15em; text-transform: uppercase; }
     h1, h2, h3, p { margin-top: 0; }
     h1, h2 { margin-bottom: 10px; font-family: Manrope, sans-serif; letter-spacing: -.045em; }
@@ -204,16 +205,6 @@
             <div class="field"><label for="email">E-mail</label><input id="email" name="email" type="email" autocomplete="email" placeholder="voce@email.com" required></div>
             <div class="field full"><label for="marca_tv">Onde vai assistir?</label><select id="marca_tv" name="marca_tv" required><option value="" disabled selected>Selecione seu dispositivo</option><option>Smart TV Samsung</option><option>Smart TV LG</option><option>Roku TV</option><option>Android TV / TV Box</option><option>Fire TV Stick</option><option>Celular ou tablet</option><option>Outro dispositivo</option></select></div>
           </div>
-          <div class="screen-choice">
-            <span class="screen-choice-label">Quantas telas deseja cadastrar?</span>
-            <div class="screen-tabs" data-screen-picker="registration" role="radiogroup" aria-label="Quantidade de telas">
-              <button class="screen-tab" type="button" role="radio" aria-checked="true" data-screen-count="1">1 tela</button>
-              <button class="screen-tab" type="button" role="radio" aria-checked="false" data-screen-count="2">2 telas</button>
-              <button class="screen-tab" type="button" role="radio" aria-checked="false" data-screen-count="3">3 telas</button>
-              <button class="screen-tab" type="button" role="radio" aria-checked="false" data-screen-count="4">4 telas</button>
-            </div>
-            <p class="screen-price-note" data-screen-price-note>A quantidade de telas não altera o valor do plano.</p>
-          </div>
           <p class="error" id="cadastro-erro" role="alert"></p>
           <div class="support-callout" data-support="registration" hidden>Se o cadastro não avançar, nossa equipe pode ajudar.<br><a data-support-link target="_blank" rel="noopener noreferrer">Falar com o suporte no WhatsApp <span aria-hidden="true">↗</span></a></div>
           <div class="actions"><button class="btn btn-primary" type="submit">Continuar para os combos <span aria-hidden="true">→</span></button><button class="btn btn-quiet" type="button" data-go="view-home">Voltar</button></div>
@@ -266,16 +257,22 @@
 
       <div class="view hidden" id="view-planos">
         <div class="progress" aria-label="Etapa 2 de 3"><span class="active"></span><span class="active"></span><span></span></div>
-        <div class="section-head"><div><p class="eyebrow">Renovação</p><h2>Por quantos meses?</h2><p class="lead">Todos os prazos incluem o plano completo. O valor depende somente da duração.</p></div><span class="client-chip hidden" id="cliente-chip"></span></div>
+        <div class="section-head"><div><p class="eyebrow" id="planos-eyebrow">Novo plano</p><h2 id="planos-titulo">Escolha seu plano completo.</h2><p class="lead">Todos os prazos incluem o plano completo. O valor depende somente da duração.</p></div><span class="client-chip hidden" id="cliente-chip"></span></div>
         <div class="plans" role="radiogroup" aria-label="Prazo da renovação e preço">
           <button class="plan" type="button" data-plan="1" role="radio" aria-checked="false"><span class="plan-icon">📺</span><h3>1 mês</h3><span class="plan-desc">Acesso ao plano completo.</span><span class="price" data-price-total>R$ 35,00</span><span class="plan-foot">Valor final · 1 mês</span></button>
           <button class="plan" type="button" data-plan="3" role="radio" aria-checked="false"><span class="plan-badge">Mais escolhido</span><span class="plan-icon">📺</span><h3>3 meses</h3><span class="plan-desc">Acesso ao plano completo.</span><span class="price" data-price-total>R$ 105,00</span><span class="plan-foot">Valor final · 3 meses</span></button>
           <button class="plan" type="button" data-plan="6" role="radio" aria-checked="false"><span class="plan-icon">📺</span><h3>6 meses</h3><span class="plan-desc">Acesso ao plano completo.</span><span class="price" data-price-total>R$ 210,00</span><span class="plan-foot">Valor final · 6 meses</span></button>
         </div>
-        <div class="screen-choice">
-          <span class="screen-choice-label">Assinatura atual</span>
-          <span class="screen-current" id="renovacao-telas-atuais">1 tela cadastrada</span>
-          <p class="screen-price-note" id="renovacao-telas-resumo">A quantidade de telas não altera o valor da renovação.</p>
+        <div class="screen-choice" id="telas-contratacao">
+          <span class="screen-choice-label" id="telas-choice-label">Quantas telas deseja cadastrar?</span>
+          <span class="screen-current hidden" id="renovacao-telas-atuais">1 tela cadastrada</span>
+          <div class="screen-tabs" data-screen-picker="plans" role="radiogroup" aria-label="Quantidade de telas">
+            <button class="screen-tab" type="button" role="radio" aria-checked="true" data-screen-count="1">1 tela</button>
+            <button class="screen-tab" type="button" role="radio" aria-checked="false" data-screen-count="2">2 telas</button>
+            <button class="screen-tab" type="button" role="radio" aria-checked="false" data-screen-count="3">3 telas</button>
+            <button class="screen-tab" type="button" role="radio" aria-checked="false" data-screen-count="4">4 telas</button>
+          </div>
+          <p class="screen-price-note" id="renovacao-telas-resumo">A quantidade de telas não altera o valor do plano.</p>
         </div>
         <div class="field" id="renovacao-email-field" hidden><label for="renovacao-email">E-mail para gerar o Pix</label><input id="renovacao-email" type="email" autocomplete="email" placeholder="voce@email.com"></div>
         <p class="error" id="planos-erro" role="alert"></p>
@@ -378,16 +375,31 @@
     function setCliente(cliente) {
       state.cliente = cliente;
       state.clienteId = null;
+      const clienteExistente = Boolean(cliente.id || cliente.supabase_id);
       state.telas = Math.max(1, Math.min(4, Number(cliente.telas) || 1));
       const chip = document.getElementById('cliente-chip');
       chip.textContent = `Olá, ${cliente.nome.split(' ')[0]}!`;
-      chip.classList.remove('hidden');
+      chip.classList.toggle('hidden', !clienteExistente);
+      document.getElementById('planos-eyebrow').textContent = clienteExistente ? 'Renovação' : 'Novo plano';
+      document.getElementById('planos-titulo').textContent = clienteExistente ? 'Por quantos meses?' : 'Escolha seu plano completo.';
       const email = String(cliente.email || '').trim();
       const emailField = document.getElementById('renovacao-email-field');
       const emailInput = document.getElementById('renovacao-email');
       emailInput.value = email;
       emailField.hidden = Boolean(email);
-      document.getElementById('renovacao-telas-atuais').textContent = `${state.telas} ${state.telas === 1 ? 'tela cadastrada' : 'telas cadastradas'}`;
+      const screensDisplay = document.getElementById('renovacao-telas-atuais');
+      const screenPicker = document.querySelector('[data-screen-picker="plans"]');
+      const screenLabel = document.getElementById('telas-choice-label');
+      if (clienteExistente) {
+        screensDisplay.textContent = `${state.telas} ${state.telas === 1 ? 'tela cadastrada' : 'telas cadastradas'}`;
+        screensDisplay.classList.remove('hidden');
+        screenPicker.classList.add('hidden');
+        screenLabel.textContent = 'Assinatura atual';
+      } else {
+        screensDisplay.classList.add('hidden');
+        screenPicker.classList.remove('hidden');
+        screenLabel.textContent = 'Quantas telas deseja cadastrar?';
+      }
       atualizarSelecaoTelas();
       atualizarPrecos();
       showView('view-planos');
@@ -401,7 +413,6 @@
       if (!form.reportValidity()) return;
       const data = Object.fromEntries(new FormData(form).entries());
       data.telefone = data.telefone.replace(/\D/g, '');
-      data.telas = state.telas;
       if (data.telefone.length < 10 || data.telefone.length > 13) { erro.textContent = 'Confira o DDD e o número do WhatsApp.'; return; }
       const submit = form.querySelector('button[type="submit"]');
       submit.disabled = true;
@@ -428,7 +439,14 @@
 
     document.getElementById('atualizar-cadastro').addEventListener('click', () => {
       if (!state.cadastroPendente) return;
-      setCliente(state.cadastroPendente);
+      setCliente({
+        ...state.clienteEncontrado,
+        ...state.cadastroPendente,
+        id: state.clienteEncontrado?.id,
+        supabase_id: state.clienteEncontrado?.supabase_id,
+        telas: state.clienteEncontrado?.telas || 1,
+        vigencia_ate: state.clienteEncontrado?.vigencia_ate,
+      });
       state.cadastroPendente = null;
       state.clienteEncontrado = null;
     });
