@@ -83,6 +83,7 @@
     .screen-tab { min-height: 43px; padding: 7px 8px; border: 1px solid transparent; border-radius: 10px; color: #53617d; background: transparent; font-size: 13px; font-weight: 700; transition: color .18s, background .18s, box-shadow .18s; }
     .screen-tab[aria-checked="true"] { border-color: #b8d7f8; color: #075cc7; background: white; box-shadow: 0 2px 8px rgba(29,85,145,.1); }
     .screen-price-note { margin: 8px 2px 0; color: var(--muted); font-size: 12px; }
+    .screen-current { display: inline-flex; min-height: 42px; align-items: center; padding: 0 14px; border: 1px solid #dfe5ef; border-radius: 12px; color: #185ca5; background: #f4f9ff; font-size: 13px; font-weight: 700; }
     .field { display: grid; gap: 7px; }
     .field.full { grid-column: 1 / -1; }
     label { color: #3b4662; font-size: 12px; font-weight: 700; }
@@ -204,14 +205,14 @@
             <div class="field full"><label for="marca_tv">Onde vai assistir?</label><select id="marca_tv" name="marca_tv" required><option value="" disabled selected>Selecione seu dispositivo</option><option>Smart TV Samsung</option><option>Smart TV LG</option><option>Roku TV</option><option>Android TV / TV Box</option><option>Fire TV Stick</option><option>Celular ou tablet</option><option>Outro dispositivo</option></select></div>
           </div>
           <div class="screen-choice">
-            <span class="screen-choice-label">Quantas telas deseja usar?</span>
+            <span class="screen-choice-label">Quantas telas deseja cadastrar?</span>
             <div class="screen-tabs" data-screen-picker="registration" role="radiogroup" aria-label="Quantidade de telas">
               <button class="screen-tab" type="button" role="radio" aria-checked="true" data-screen-count="1">1 tela</button>
               <button class="screen-tab" type="button" role="radio" aria-checked="false" data-screen-count="2">2 telas</button>
               <button class="screen-tab" type="button" role="radio" aria-checked="false" data-screen-count="3">3 telas</button>
               <button class="screen-tab" type="button" role="radio" aria-checked="false" data-screen-count="4">4 telas</button>
             </div>
-            <p class="screen-price-note" data-screen-price-note>R$ 35,00 por mês para 1 tela.</p>
+            <p class="screen-price-note" data-screen-price-note>A quantidade de telas não altera o valor do plano.</p>
           </div>
           <p class="error" id="cadastro-erro" role="alert"></p>
           <div class="support-callout" data-support="registration" hidden>Se o cadastro não avançar, nossa equipe pode ajudar.<br><a data-support-link target="_blank" rel="noopener noreferrer">Falar com o suporte no WhatsApp <span aria-hidden="true">↗</span></a></div>
@@ -265,23 +266,18 @@
 
       <div class="view hidden" id="view-planos">
         <div class="progress" aria-label="Etapa 2 de 3"><span class="active"></span><span class="active"></span><span></span></div>
-        <div class="section-head"><div><p class="eyebrow">Só falta escolher</p><h2>Qual combo combina com você?</h2><p class="lead">Selecione um período para seguir para o pagamento.</p></div><span class="client-chip hidden" id="cliente-chip"></span></div>
+        <div class="section-head"><div><p class="eyebrow">Renovação</p><h2>Por quantos meses?</h2><p class="lead">Todos os prazos incluem o plano completo. O valor depende somente da duração.</p></div><span class="client-chip hidden" id="cliente-chip"></span></div>
+        <div class="plans" role="radiogroup" aria-label="Prazo da renovação e preço">
+          <button class="plan" type="button" data-plan="1" role="radio" aria-checked="false"><span class="plan-icon">📺</span><h3>1 mês</h3><span class="plan-desc">Acesso ao plano completo.</span><span class="price" data-price-total>R$ 35,00</span><span class="plan-foot">Valor final · 1 mês</span></button>
+          <button class="plan" type="button" data-plan="3" role="radio" aria-checked="false"><span class="plan-badge">Mais escolhido</span><span class="plan-icon">📺</span><h3>3 meses</h3><span class="plan-desc">Acesso ao plano completo.</span><span class="price" data-price-total>R$ 105,00</span><span class="plan-foot">Valor final · 3 meses</span></button>
+          <button class="plan" type="button" data-plan="6" role="radio" aria-checked="false"><span class="plan-icon">📺</span><h3>6 meses</h3><span class="plan-desc">Acesso ao plano completo.</span><span class="price" data-price-total>R$ 210,00</span><span class="plan-foot">Valor final · 6 meses</span></button>
+        </div>
         <div class="screen-choice">
-          <span class="screen-choice-label">Telas para esta contratação</span>
-          <div class="screen-tabs" data-screen-picker="renewal" role="radiogroup" aria-label="Quantidade de telas para pagamento">
-            <button class="screen-tab" type="button" role="radio" aria-checked="true" data-screen-count="1">1 tela</button>
-            <button class="screen-tab" type="button" role="radio" aria-checked="false" data-screen-count="2">2 telas</button>
-            <button class="screen-tab" type="button" role="radio" aria-checked="false" data-screen-count="3">3 telas</button>
-            <button class="screen-tab" type="button" role="radio" aria-checked="false" data-screen-count="4">4 telas</button>
-          </div>
-          <p class="screen-price-note" id="renovacao-telas-resumo">Valor calculado por tela.</p>
+          <span class="screen-choice-label">Assinatura atual</span>
+          <span class="screen-current" id="renovacao-telas-atuais">1 tela cadastrada</span>
+          <p class="screen-price-note" id="renovacao-telas-resumo">A quantidade de telas não altera o valor da renovação.</p>
         </div>
         <div class="field" id="renovacao-email-field" hidden><label for="renovacao-email">E-mail para gerar o Pix</label><input id="renovacao-email" type="email" autocomplete="email" placeholder="voce@email.com"></div>
-        <div class="plans" role="radiogroup" aria-label="Combos disponíveis">
-          <button class="plan" type="button" data-plan="1" role="radio" aria-checked="false"><span class="plan-icon">🍿</span><h3>Combo Básico</h3><span class="plan-desc">Uma dose de diversão para todos os dias.</span><span class="price" data-price-total>R$ 35,00</span><span class="plan-foot" data-price-foot>R$ 35,00 por mês · 1 tela</span></button>
-          <button class="plan" type="button" data-plan="3" role="radio" aria-checked="false"><span class="plan-badge">Mais escolhido</span><span class="plan-icon">🎬</span><h3>Combo Cinema</h3><span class="plan-desc">Mais tempo para curtir suas histórias.</span><span class="price" data-price-total>R$ 105,00</span><span class="plan-foot" data-price-foot>R$ 35,00 por mês · 1 tela</span></button>
-          <button class="plan" type="button" data-plan="6" role="radio" aria-checked="false"><span class="plan-icon">⭐</span><h3>Combo Premium</h3><span class="plan-desc">Seu entretenimento por muito mais tempo.</span><span class="price" data-price-total>R$ 210,00</span><span class="plan-foot" data-price-foot>R$ 35,00 por mês · 1 tela</span></button>
-        </div>
         <p class="error" id="planos-erro" role="alert"></p>
         <div class="plan-actions"><button class="btn btn-quiet" type="button" data-go="view-home">Voltar ao início</button><button class="btn btn-primary" id="continuar-pagamento" type="button" disabled>Continuar para pagamento <span aria-hidden="true">→</span></button></div>
       </div>
@@ -314,9 +310,9 @@
   <script>
     const state = { cliente: null, clienteId: null, cadastroPendente: null, clienteEncontrado: null, plano: null, telas: 1, paymentId: null, polling: null, expirationTimer: null, expiraEm: null, valor: 0 };
     const planos = {
-      1: { nome: 'Combo Básico', meses: 1 },
-      3: { nome: 'Combo Cinema', meses: 3 },
-      6: { nome: 'Combo Premium', meses: 6 }
+      1: { nome: 'Plano completo — 1 mês', meses: 1 },
+      3: { nome: 'Plano completo — 3 meses', meses: 3 },
+      6: { nome: 'Plano completo — 6 meses', meses: 6 }
     };
     const telefoneInputs = [document.getElementById('telefone'), document.getElementById('telefone-consulta'), document.getElementById('teste-telefone')];
 
@@ -355,19 +351,19 @@
     }
 
     function atualizarPrecos() {
-      const mensal = 35 * state.telas;
+      const mensal = 35;
       document.querySelectorAll('[data-price-total]').forEach((price, index) => {
         const card = price.closest('[data-plan]');
         const meses = Number(card?.dataset.plan || [1, 3, 6][index]);
         price.textContent = currency(mensal * meses);
         const foot = card?.querySelector('[data-price-foot]');
-        if (foot) foot.textContent = `${currency(mensal)} por mês · ${state.telas} ${state.telas === 1 ? 'tela' : 'telas'}`;
+        if (foot) foot.textContent = `Valor final · ${meses} ${meses === 1 ? 'mês' : 'meses'}`;
       });
       document.querySelectorAll('[data-screen-price-note]').forEach((note) => {
-        note.textContent = `${currency(mensal)} por mês para ${state.telas} ${state.telas === 1 ? 'tela' : 'telas'}.`;
+        note.textContent = 'A quantidade de telas não altera o valor do plano.';
       });
       const renewalNote = document.getElementById('renovacao-telas-resumo');
-      if (renewalNote) renewalNote.textContent = `${currency(mensal)} por mês para ${state.telas} ${state.telas === 1 ? 'tela' : 'telas'}; escolha o período abaixo.`;
+      if (renewalNote) renewalNote.textContent = 'O preço depende somente dos meses; a quantidade de telas não altera o valor.';
     }
     atualizarPrecos();
 
@@ -391,6 +387,7 @@
       const emailInput = document.getElementById('renovacao-email');
       emailInput.value = email;
       emailField.hidden = Boolean(email);
+      document.getElementById('renovacao-telas-atuais').textContent = `${state.telas} ${state.telas === 1 ? 'tela cadastrada' : 'telas cadastradas'}`;
       atualizarSelecaoTelas();
       atualizarPrecos();
       showView('view-planos');
@@ -521,9 +518,9 @@
         const saved = await api('/api/cadastrar-cliente', { method: 'POST', body: JSON.stringify({ nome: state.cliente.nome, email: state.cliente.email, telefone: state.cliente.telefone, marca_tv: state.cliente.marca_tv, telas: state.telas }) });
         state.clienteId = saved.cliente_id;
         const plano = planos[state.plano];
-        state.valor = 35 * plano.meses * state.telas;
+        state.valor = 35 * plano.meses;
         document.getElementById('resumo-plano').textContent = plano.nome;
-        document.getElementById('resumo-valor').textContent = `${currency(state.valor)} · ${state.telas} ${state.telas === 1 ? 'tela' : 'telas'}`;
+        document.getElementById('resumo-valor').textContent = `${currency(state.valor)} · ${plano.meses} ${plano.meses === 1 ? 'mês' : 'meses'}`;
         showView('view-pix');
         await gerarPix();
       } catch (error) {
@@ -609,7 +606,7 @@
           document.getElementById('sucesso-nome').textContent = `${payment.cliente.nome.split(' ')[0]}, tudo certo!`;
           const validade = payment.vigencia_ate ? `<br>Seu acesso está válido até ${escapeHtml(formatDate(payment.vigencia_ate))}.` : '';
           const quantidadeTelas = Number(payment.telas) || state.telas;
-          document.getElementById('dados-sucesso').innerHTML = `<strong>${escapeHtml(planos[payment.plano_meses].nome)}</strong><br>Valor confirmado: ${currency(payment.valor)} · ${quantidadeTelas} ${quantidadeTelas === 1 ? 'tela' : 'telas'}${validade}<br>Seu cadastro e o pagamento foram registrados.`;
+          document.getElementById('dados-sucesso').innerHTML = `<strong>${escapeHtml(planos[payment.plano_meses].nome)}</strong><br>Valor confirmado: ${currency(payment.valor)} · ${payment.plano_meses} ${payment.plano_meses === 1 ? 'mês' : 'meses'}<br>Cadastro com ${quantidadeTelas} ${quantidadeTelas === 1 ? 'tela' : 'telas'}${validade}<br>Seu cadastro e o pagamento foram registrados.`;
           showView('view-sucesso');
         } else if (['rejected', 'cancelled', 'expired', 'refunded', 'charged_back'].includes(payment.status)) {
           limparTimersPagamento();

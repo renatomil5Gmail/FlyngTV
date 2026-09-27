@@ -31,10 +31,11 @@ MP_ACCESS_TOKEN = os.getenv("MERCADOPAGO_TOKEN")
 MP_WEBHOOK_SECRET = os.getenv("MERCADOPAGO_WEBHOOK_SECRET")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-CUSTOMER_DB_BACKEND = os.getenv("CUSTOMER_DB_BACKEND", "sqlite").strip().lower()
+EM_RENDER = bool(os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID"))
+CUSTOMER_DB_BACKEND = "supabase" if EM_RENDER else os.getenv("CUSTOMER_DB_BACKEND", "sqlite").strip().lower()
 sdk = mercadopago.SDK(MP_ACCESS_TOKEN) if MP_ACCESS_TOKEN else None
-PRECO_MENSAL_POR_TELA = 35.00
-PLANOS = {1: "Básico", 3: "Cinema", 6: "Premium"}
+PRECO_MENSAL = 35.00
+PLANOS = {1: "Plano completo — 1 mês", 3: "Plano completo — 3 meses", 6: "Plano completo — 6 meses"}
 
 
 def carregar_telefone_suporte() -> str:
@@ -156,6 +157,8 @@ def requisicao_supabase(metodo: str, tabela: str, *, params: dict | None = None,
     except requests.RequestException as exc:
         status = getattr(getattr(exc, "response", None), "status_code", None)
         logger.warning("Supabase %s %s failed (HTTP %s).", metodo, tabela, status or "network error")
+        if status == 400:
+            raise HTTPException(status_code=400, detail="O Supabase recusou o formato deste filtro.") from exc
         raise HTTPException(
             status_code=503,
             detail="Não foi possível consultar ou salvar o cadastro no Supabase. Tente novamente ou fale com o suporte.",
@@ -168,15 +171,90 @@ def requisicao_supabase(metodo: str, tabela: str, *, params: dict | None = None,
         raise HTTPException(status_code=502, detail="O Supabase retornou uma resposta inválida.") from exc
 
 
+def normalizar_telefone(telefone: str) -> str:
+    digits = re.sub(r"\D", "", telefone)
+    if len(digits) in (12, 13) and digits.startswith("55"):
+        return digits[2:]
+    return digits
+
+
+def variantes_telefone(telefone: str) -> list[str]:
+    digits = re.sub(r"\D", "", telefone)
+    local = normalizar_telefone(digits)
+    candidates = [digits, local]
+    if len(local) in (10, 11):
+        ddd, numero = local[:2], local[2:]
+        candidates.extend((
+            f"55{local}",
+            f"+55{local}",
+            f"({ddd}) {numero}",
+            f"{ddd} {numero}",
+            f"+55 ({ddd}) {numero}",
+            f"55 ({ddd}) {numero}",
+            f"+55 {ddd} {numero}",
+            f"55 {ddd} {numero}",
+        ))
+        if len(numero) == 9:
+            candidates.extend((
+                f"({ddd}) {numero[:5]}-{numero[5:]}",
+                f"{ddd} {numero[:5]}-{numero[5:]}",
+                f"+55 ({ddd}) {numero[:5]}-{numero[5:]}",
+                f"+55 {ddd} {numero[:5]}-{numero[5:]}",
+                f"55 {ddd} {numero[:5]}-{numero[5:]}",
+            ))
+        elif len(numero) == 8:
+            candidates.extend((
+                f"({ddd}) {numero[:4]}-{numero[4:]}",
+                f"{ddd} {numero[:4]}-{numero[4:]}",
+                f"+55 ({ddd}) {numero[:4]}-{numero[4:]}",
+                f"+55 {ddd} {numero[:4]}-{numero[4:]}",
+                f"55 {ddd} {numero[:4]}-{numero[4:]}",
+            ))
+    return list(dict.fromkeys(candidate for candidate in candidates if candidate))
+
+
 def buscar_cliente_supabase(telefone: str) -> dict | None:
-    rows = requisicao_supabase(
-        "GET",
-        "clientes",
-        params={"select": "*", "telefone": f"eq.{telefone}", "limit": "1"},
-    )
-    if not isinstance(rows, list) or not rows:
-        return None
-    return rows[0] if isinstance(rows[0], dict) else None
+    telefone_canonico = normalizar_telefone(telefone)
+    for variante in variantes_telefone(telefone):
+        try:
+            rows = requisicao_supabase(
+                "GET",
+                "clientes",
+                params={"select": "*", "telefone": f"eq.{variante}", "limit": "1"},
+            )
+        except HTTPException as exc:
+            if exc.status_code == 400:
+                continue
+            raise
+        if not isinstance(rows, list):
+            continue
+        for cliente in rows:
+            if (
+                isinstance(cliente, dict)
+                and normalizar_telefone(str(cliente.get("telefone", ""))) == telefone_canonico
+            ):
+                return cliente
+
+    # Handles separators or spaces not covered by the known Brazilian formats.
+    sufixo = telefone_canonico[-7:]
+    try:
+        rows = requisicao_supabase(
+            "GET",
+            "clientes",
+            params={"select": "*", "telefone": f"ilike.*{sufixo}*", "limit": "100"},
+        )
+    except HTTPException as exc:
+        if exc.status_code != 400:
+            raise
+        rows = []
+    if isinstance(rows, list):
+        for cliente in rows:
+            if (
+                isinstance(cliente, dict)
+                and normalizar_telefone(str(cliente.get("telefone", ""))) == telefone_canonico
+            ):
+                return cliente
+    return None
 
 
 def cachear_cliente_supabase(cliente: dict) -> dict:
@@ -288,6 +366,8 @@ class CadastroClienteRequest(BaseModel):
         digits = re.sub(r"\D", "", value)
         if not 10 <= len(digits) <= 13:
             raise ValueError("Informe o DDD e o número do WhatsApp.")
+        if len(digits) in (12, 13) and digits.startswith("55"):
+            digits = digits[2:]
         return digits
 
 
@@ -635,7 +715,7 @@ def gerar_pix(req: GerarPixRequest):
         raise HTTPException(status_code=404, detail="Cadastro não encontrado.")
 
     nome_plano = PLANOS[req.plano_meses]
-    valor = round(PRECO_MENSAL_POR_TELA * req.plano_meses * req.telas, 2)
+    valor = round(PRECO_MENSAL * req.plano_meses, 2)
     data_expiracao = agora_utc() + timedelta(minutes=PIX_EXPIRATION_MINUTES)
     data_expiracao_iso = data_expiracao.isoformat(timespec="milliseconds").replace("+00:00", "Z")
     payment_data = {
