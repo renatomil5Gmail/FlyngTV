@@ -20,6 +20,8 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+      - key: CUSTOMER_DB_BACKEND
+        value: supabase
       - key: SUPORTE_WHATSAPP
         value: "552799763143"
       - key: PIX_EXPIRATION_MINUTES

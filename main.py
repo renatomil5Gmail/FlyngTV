@@ -31,8 +31,10 @@ MP_ACCESS_TOKEN = os.getenv("MERCADOPAGO_TOKEN")
 MP_WEBHOOK_SECRET = os.getenv("MERCADOPAGO_WEBHOOK_SECRET")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+CUSTOMER_DB_BACKEND = os.getenv("CUSTOMER_DB_BACKEND", "sqlite").strip().lower()
 sdk = mercadopago.SDK(MP_ACCESS_TOKEN) if MP_ACCESS_TOKEN else None
-PLANOS = {1: ("Básico", 30.00), 3: ("Cinema", 80.00), 6: ("Premium", 150.00)}
+PRECO_MENSAL_POR_TELA = 35.00
+PLANOS = {1: "Básico", 3: "Cinema", 6: "Premium"}
 
 
 def carregar_telefone_suporte() -> str:
@@ -77,13 +79,16 @@ def criar_tabelas():
                 marca_tv TEXT NOT NULL,
                 criado_em TEXT NOT NULL,
                 atualizado_em TEXT NOT NULL,
-                vigencia_ate TEXT
+                vigencia_ate TEXT,
+                telas INTEGER NOT NULL DEFAULT 1,
+                supabase_id TEXT
             );
             CREATE TABLE IF NOT EXISTS transacoes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 payment_id_mp TEXT NOT NULL UNIQUE,
                 cliente_id INTEGER NOT NULL REFERENCES clientes(id),
                 plano_meses INTEGER NOT NULL,
+                telas INTEGER NOT NULL DEFAULT 1,
                 valor REAL NOT NULL,
                 status TEXT NOT NULL,
                 criado_em TEXT NOT NULL,
@@ -97,6 +102,10 @@ def criar_tabelas():
         }
         if "vigencia_ate" not in colunas_clientes:
             connection.execute("ALTER TABLE clientes ADD COLUMN vigencia_ate TEXT")
+        if "telas" not in colunas_clientes:
+            connection.execute("ALTER TABLE clientes ADD COLUMN telas INTEGER NOT NULL DEFAULT 1")
+        if "supabase_id" not in colunas_clientes:
+            connection.execute("ALTER TABLE clientes ADD COLUMN supabase_id TEXT")
         colunas_transacoes = {
             row["name"] for row in connection.execute("PRAGMA table_info(transacoes)")
         }
@@ -104,10 +113,150 @@ def criar_tabelas():
             connection.execute("ALTER TABLE transacoes ADD COLUMN expira_em TEXT")
         if "ativado_em" not in colunas_transacoes:
             connection.execute("ALTER TABLE transacoes ADD COLUMN ativado_em TEXT")
+        if "telas" not in colunas_transacoes:
+            connection.execute("ALTER TABLE transacoes ADD COLUMN telas INTEGER NOT NULL DEFAULT 1")
         connection.commit()
 
 
 criar_tabelas()
+
+
+def supabase_configurado() -> bool:
+    return bool(SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)
+
+
+def garantir_backend_clientes():
+    if CUSTOMER_DB_BACKEND == "supabase" and not supabase_configurado():
+        raise HTTPException(
+            status_code=503,
+            detail="O serviço está configurado para usar o Supabase, mas SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY não está configurada no Render.",
+        )
+
+
+def requisicao_supabase(metodo: str, tabela: str, *, params: dict | None = None, payload: dict | None = None, prefer: str | None = None):
+    if not supabase_configurado():
+        raise HTTPException(status_code=503, detail="A conexão com o Supabase não está configurada no servidor.")
+    headers = {
+        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+        "Content-Type": "application/json",
+    }
+    if prefer:
+        headers["Prefer"] = prefer
+    try:
+        response = requests.request(
+            metodo,
+            f"{SUPABASE_URL}/rest/v1/{tabela}",
+            params=params,
+            json=payload,
+            headers=headers,
+            timeout=10,
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        logger.warning("Supabase %s %s failed (HTTP %s).", metodo, tabela, status or "network error")
+        raise HTTPException(
+            status_code=503,
+            detail="Não foi possível consultar ou salvar o cadastro no Supabase. Tente novamente ou fale com o suporte.",
+        ) from exc
+    if not response.content:
+        return None
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail="O Supabase retornou uma resposta inválida.") from exc
+
+
+def buscar_cliente_supabase(telefone: str) -> dict | None:
+    rows = requisicao_supabase(
+        "GET",
+        "clientes",
+        params={"select": "*", "telefone": f"eq.{telefone}", "limit": "1"},
+    )
+    if not isinstance(rows, list) or not rows:
+        return None
+    return rows[0] if isinstance(rows[0], dict) else None
+
+
+def cachear_cliente_supabase(cliente: dict) -> dict:
+    telefone = re.sub(r"\D", "", str(cliente.get("telefone", "")))
+    if not telefone:
+        raise HTTPException(status_code=502, detail="O registro do Supabase não contém telefone válido.")
+    with closing(conectar_banco()) as connection:
+        atual = connection.execute(
+            "SELECT email, vigencia_ate FROM clientes WHERE telefone = ?", (telefone,)
+        ).fetchone()
+        email = str(cliente.get("email") or (atual["email"] if atual else ""))
+        vigencia_ate = cliente.get("vigencia_ate") or (atual["vigencia_ate"] if atual else None)
+        agora = agora_utc().isoformat()
+        connection.execute(
+            """
+            INSERT INTO clientes (nome, telefone, email, marca_tv, criado_em, atualizado_em, vigencia_ate, telas, supabase_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(telefone) DO UPDATE SET
+                nome = excluded.nome,
+                email = CASE WHEN excluded.email <> '' THEN excluded.email ELSE clientes.email END,
+                marca_tv = excluded.marca_tv,
+                atualizado_em = excluded.atualizado_em,
+                vigencia_ate = COALESCE(excluded.vigencia_ate, clientes.vigencia_ate),
+                telas = excluded.telas,
+                supabase_id = COALESCE(excluded.supabase_id, clientes.supabase_id)
+            """,
+            (
+                str(cliente.get("nome") or "Cliente"),
+                telefone,
+                email,
+                str(cliente.get("marca_tv") or "Não informado"),
+                str(cliente.get("created_at") or agora),
+                agora,
+                vigencia_ate,
+                max(1, min(4, int(cliente.get("telas") or 1))),
+                str(cliente["id"]) if cliente.get("id") is not None else None,
+            ),
+        )
+        cached = connection.execute(
+            "SELECT id, nome, telefone, email, marca_tv, vigencia_ate, telas, supabase_id FROM clientes WHERE telefone = ?",
+            (telefone,),
+        ).fetchone()
+        connection.commit()
+    return dict(cached)
+
+
+def salvar_cliente_supabase(req: "CadastroClienteRequest") -> dict:
+    existente = buscar_cliente_supabase(req.telefone)
+    payload = {
+        "nome": req.nome,
+        "telefone": req.telefone,
+        "email": req.email,
+        "marca_tv": req.marca_tv,
+    }
+    if existente is None:
+        payload["telas"] = req.telas
+        rows = requisicao_supabase(
+            "POST",
+            "clientes",
+            params={"on_conflict": "telefone"},
+            payload=payload,
+            prefer="resolution=merge-duplicates,return=representation",
+        )
+        if not isinstance(rows, list) or not rows or not isinstance(rows[0], dict):
+            existente = buscar_cliente_supabase(req.telefone)
+        else:
+            existente = rows[0]
+    else:
+        # Tela ativa de um cliente existente só muda quando o novo pagamento é aprovado.
+        requisicao_supabase(
+            "PATCH",
+            "clientes",
+            params={"id": f"eq.{existente['id']}"},
+            payload=payload,
+            prefer="return=representation",
+        )
+        existente = buscar_cliente_supabase(req.telefone) or {**existente, **payload}
+    if existente is None:
+        raise HTTPException(status_code=502, detail="O Supabase não confirmou o cadastro do cliente.")
+    return cachear_cliente_supabase(existente)
 
 
 class ConsultaTelefoneRequest(BaseModel):
@@ -119,6 +268,7 @@ class CadastroClienteRequest(BaseModel):
     email: str = Field(min_length=5, max_length=254)
     telefone: str = Field(min_length=10, max_length=20)
     marca_tv: str = Field(min_length=1, max_length=60)
+    telas: int = Field(default=1, ge=1, le=4)
 
     @field_validator("nome", "email", "telefone", "marca_tv")
     @classmethod
@@ -144,6 +294,7 @@ class CadastroClienteRequest(BaseModel):
 class GerarPixRequest(BaseModel):
     cliente_id: int = Field(gt=0)
     plano_meses: int
+    telas: int = Field(default=1, ge=1, le=4)
 
 
 def agora_utc() -> datetime:
@@ -176,7 +327,7 @@ def registrar_status_pagamento(payment_id: str, payment: dict) -> dict | None:
     with closing(conectar_banco()) as connection:
         connection.execute("BEGIN IMMEDIATE")
         transacao = connection.execute(
-            "SELECT cliente_id, plano_meses, valor, ativado_em, expira_em FROM transacoes WHERE payment_id_mp = ?",
+            "SELECT cliente_id, plano_meses, telas, valor, ativado_em, expira_em FROM transacoes WHERE payment_id_mp = ?",
             (payment_id,),
         ).fetchone()
         if transacao is None:
@@ -204,7 +355,7 @@ def registrar_status_pagamento(payment_id: str, payment: dict) -> dict | None:
         )
         if status == "approved" and transacao["ativado_em"] is None:
             cliente = connection.execute(
-                "SELECT vigencia_ate FROM clientes WHERE id = ?",
+                "SELECT vigencia_ate, supabase_id FROM clientes WHERE id = ?",
                 (transacao["cliente_id"],),
             ).fetchone()
             if cliente is None:
@@ -212,9 +363,22 @@ def registrar_status_pagamento(payment_id: str, payment: dict) -> dict | None:
             vigencia_atual = interpretar_data(cliente["vigencia_ate"])
             inicio_vigencia = max(agora, vigencia_atual) if vigencia_atual else agora
             vigencia_ate = adicionar_meses(inicio_vigencia, int(transacao["plano_meses"]))
+            if supabase_configurado():
+                if not cliente["supabase_id"]:
+                    raise HTTPException(status_code=503, detail="O cadastro não está vinculado ao Supabase; fale com o suporte antes de ativar a renovação.")
+                requisicao_supabase(
+                    "PATCH",
+                    "clientes",
+                    params={"id": f"eq.{cliente['supabase_id']}"},
+                    payload={
+                        "vigencia_ate": vigencia_ate.isoformat(),
+                        "telas": int(transacao["telas"]),
+                    },
+                    prefer="return=minimal",
+                )
             connection.execute(
-                "UPDATE clientes SET vigencia_ate = ?, atualizado_em = ? WHERE id = ?",
-                (vigencia_ate.isoformat(), agora.isoformat(), transacao["cliente_id"]),
+                "UPDATE clientes SET vigencia_ate = ?, telas = ?, atualizado_em = ? WHERE id = ?",
+                (vigencia_ate.isoformat(), int(transacao["telas"]), agora.isoformat(), transacao["cliente_id"]),
             )
             connection.execute(
                 "UPDATE transacoes SET ativado_em = ? WHERE payment_id_mp = ? AND ativado_em IS NULL",
@@ -247,7 +411,14 @@ def arte():
 
 @app.get("/api/saude")
 def saude():
-    return {"ok": True, "pagamentos_configurados": sdk is not None}
+    backend_configurado = supabase_configurado() if CUSTOMER_DB_BACKEND == "supabase" else True
+    return {
+        "ok": True,
+        "pagamentos_configurados": sdk is not None,
+        "clientes_supabase_configurados": supabase_configurado(),
+        "clientes_backend": CUSTOMER_DB_BACKEND,
+        "clientes_backend_configurado": backend_configurado,
+    }
 
 
 @app.get("/api/configuracao-publica")
@@ -261,10 +432,14 @@ def configuracao_publica():
 
 @app.post("/api/teste-gratis")
 def solicitar_teste_gratis(req: CadastroClienteRequest):
-    with closing(conectar_banco()) as connection:
-        cliente = connection.execute(
-            "SELECT id FROM clientes WHERE telefone = ?", (req.telefone,)
-        ).fetchone()
+    garantir_backend_clientes()
+    if supabase_configurado():
+        cliente = buscar_cliente_supabase(req.telefone)
+    else:
+        with closing(conectar_banco()) as connection:
+            cliente = connection.execute(
+                "SELECT id FROM clientes WHERE telefone = ?", (req.telefone,)
+            ).fetchone()
     if cliente is not None:
         raise HTTPException(
             status_code=409,
@@ -393,9 +568,18 @@ async def webhook_mercadopago(request: Request):
 @app.post("/api/consultar-telefone")
 def consultar_telefone(req: ConsultaTelefoneRequest):
     telefone = re.sub(r"\D", "", req.telefone)
+    garantir_backend_clientes()
+    if supabase_configurado():
+        cliente = buscar_cliente_supabase(telefone)
+        if cliente is None:
+            return {"encontrado": False}
+        # Keep a local copy for Mercado Pago payment/transaction linkage; Supabase remains canonical.
+        cliente_local = cachear_cliente_supabase(cliente)
+        return {"encontrado": True, "cliente": cliente_local}
+
     with closing(conectar_banco()) as connection:
         cliente = connection.execute(
-            "SELECT id, nome, telefone, email, marca_tv, vigencia_ate FROM clientes WHERE telefone = ?",
+            "SELECT id, nome, telefone, email, marca_tv, vigencia_ate, telas, supabase_id FROM clientes WHERE telefone = ?",
             (telefone,),
         ).fetchone()
 
@@ -406,26 +590,31 @@ def consultar_telefone(req: ConsultaTelefoneRequest):
 
 @app.post("/api/cadastrar-cliente")
 def cadastrar_cliente(req: CadastroClienteRequest):
+    garantir_backend_clientes()
+    if supabase_configurado():
+        cliente = salvar_cliente_supabase(req)
+        return {"status": "ok", "cliente_id": cliente["id"], "telas": cliente["telas"]}
+
     agora = datetime.now(timezone.utc).isoformat()
     with closing(conectar_banco()) as connection:
         connection.execute(
             """
-            INSERT INTO clientes (nome, telefone, email, marca_tv, criado_em, atualizado_em)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO clientes (nome, telefone, email, marca_tv, criado_em, atualizado_em, telas)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(telefone) DO UPDATE SET
                 nome = excluded.nome,
                 email = excluded.email,
                 marca_tv = excluded.marca_tv,
                 atualizado_em = excluded.atualizado_em
             """,
-            (req.nome, req.telefone, req.email, req.marca_tv, agora, agora),
+            (req.nome, req.telefone, req.email, req.marca_tv, agora, agora, req.telas),
         )
         cliente = connection.execute(
             "SELECT id FROM clientes WHERE telefone = ?", (req.telefone,)
         ).fetchone()
         connection.commit()
 
-    return {"status": "ok", "cliente_id": cliente["id"]}
+    return {"status": "ok", "cliente_id": cliente["id"], "telas": req.telas}
 
 
 @app.post("/api/gerar-pix")
@@ -445,12 +634,13 @@ def gerar_pix(req: GerarPixRequest):
     if cliente is None:
         raise HTTPException(status_code=404, detail="Cadastro não encontrado.")
 
-    nome_plano, valor = PLANOS[req.plano_meses]
+    nome_plano = PLANOS[req.plano_meses]
+    valor = round(PRECO_MENSAL_POR_TELA * req.plano_meses * req.telas, 2)
     data_expiracao = agora_utc() + timedelta(minutes=PIX_EXPIRATION_MINUTES)
     data_expiracao_iso = data_expiracao.isoformat(timespec="milliseconds").replace("+00:00", "Z")
     payment_data = {
         "transaction_amount": valor,
-        "description": f"PlayTV {nome_plano} — {req.plano_meses} meses",
+        "description": f"PlayTV {nome_plano} — {req.plano_meses} meses — {req.telas} tela(s)",
         "payment_method_id": "pix",
         "payer": {"email": cliente["email"], "first_name": cliente["nome"].split()[0]},
         "external_reference": str(cliente["id"]),
@@ -497,10 +687,10 @@ def gerar_pix(req: GerarPixRequest):
     with closing(conectar_banco()) as connection:
         connection.execute(
             """
-            INSERT INTO transacoes (payment_id_mp, cliente_id, plano_meses, valor, status, criado_em, expira_em)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO transacoes (payment_id_mp, cliente_id, plano_meses, telas, valor, status, criado_em, expira_em)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (payment_id, cliente["id"], req.plano_meses, valor, payment.get("status", "pending"), agora_utc().isoformat(), data_expiracao_mp),
+            (payment_id, cliente["id"], req.plano_meses, req.telas, valor, payment.get("status", "pending"), agora_utc().isoformat(), data_expiracao_mp),
         )
         connection.commit()
 
@@ -510,6 +700,7 @@ def gerar_pix(req: GerarPixRequest):
         "qr_code_base64": transaction_data.get("qr_code_base64"),
         "valor": valor,
         "plano": nome_plano,
+        "telas": req.telas,
         "expira_em": data_expiracao_mp,
     }
 
@@ -519,7 +710,7 @@ def status_pagamento(payment_id: str):
     with closing(conectar_banco()) as connection:
         transacao = connection.execute(
             """
-              SELECT t.status, t.valor, t.plano_meses, c.nome, t.expira_em
+              SELECT t.status, t.valor, t.plano_meses, t.telas, c.nome, t.expira_em
             FROM transacoes t JOIN clientes c ON c.id = t.cliente_id
             WHERE t.payment_id_mp = ?
             """,
@@ -547,6 +738,7 @@ def status_pagamento(payment_id: str):
         "cliente": {"nome": transacao["nome"]},
         "valor": transacao["valor"],
         "plano_meses": transacao["plano_meses"],
+        "telas": transacao["telas"],
         "vigencia_ate": atualizado["vigencia_ate"],
         "expira_em": transacao["expira_em"],
     }
