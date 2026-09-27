@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#071638">
+  <title>PlayTV — escolha sua experiência</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #111934;
+      --muted: #67708a;
+      --blue: #1677e8;
+      --blue-dark: #075cc7;
+      --line: rgba(40, 61, 112, .12);
+      --glass: rgba(250, 252, 255, .975);
+      --shadow: 0 30px 90px rgba(3, 12, 41, .34);
+    }
+    * { box-sizing: border-box; }
+    body {
+      min-width: 320px;
+      min-height: 100vh;
+      margin: 0;
+      padding: 34px 20px;
+      display: grid;
+      place-items: center;
+      overflow-x: hidden;
+      color: var(--ink);
+      font-family: "DM Sans", sans-serif;
+      background: #071638 url("/arte.jpg") center / cover fixed no-repeat;
+    }
+    body::before {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      content: "";
+      background: linear-gradient(120deg, rgba(4, 15, 49, .22), rgba(4, 15, 49, .05) 52%, rgba(4, 15, 49, .35));
+      backdrop-filter: blur(1px);
+    }
+    button, input, select { font: inherit; }
+    button { cursor: pointer; }
+    .shell { width: min(100%, 920px); animation: arrive .7s cubic-bezier(.2,.75,.25,1) both; }
+    .topline { display: flex; align-items: center; justify-content: space-between; margin: 0 8px 14px; color: white; text-shadow: 0 2px 14px rgba(0,0,0,.4); }
+    .brand { display: inline-flex; align-items: center; gap: 10px; font: 800 19px Manrope, sans-serif; letter-spacing: -.5px; }
+    .brand-mark { display: grid; width: 35px; height: 35px; place-items: center; border: 1px solid rgba(255,255,255,.45); border-radius: 12px; background: rgba(255,255,255,.17); backdrop-filter: blur(8px); }
+    .secure-note { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: rgba(255,255,255,.9); }
+    .secure-note svg { width: 15px; height: 15px; }
+    .panel { position: relative; min-height: 530px; padding: clamp(25px, 5vw, 54px); overflow: hidden; border: 1px solid rgba(255,255,255,.76); border-radius: 30px; background: var(--glass); box-shadow: var(--shadow); backdrop-filter: blur(22px); }
+    .panel::before { position: absolute; top: -110px; right: -90px; width: 270px; height: 270px; border-radius: 50%; background: radial-gradient(circle, rgba(76,163,255,.12), transparent 68%); content: ""; pointer-events: none; }
+    .view { position: relative; z-index: 1; animation: fade-up .34s ease both; }
+    .hidden { display: none !important; }
+    .eyebrow { margin: 0 0 10px; color: var(--blue); font-size: 11px; font-weight: 800; letter-spacing: .15em; text-transform: uppercase; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1, h2 { margin-bottom: 10px; font-family: Manrope, sans-serif; letter-spacing: -.045em; }
+    h1 { max-width: 690px; font-size: clamp(30px, 5vw, 47px); line-height: 1.11; }
+    h2 { font-size: clamp(25px, 4vw, 34px); line-height: 1.16; }
+    .lead { max-width: 590px; margin-bottom: 27px; color: var(--muted); font-size: 15px; line-height: 1.65; }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 26px 0 30px; }
+    .btn { min-height: 48px; display: inline-flex; align-items: center; justify-content: center; gap: 9px; padding: 0 19px; border: 1px solid transparent; border-radius: 13px; font-weight: 700; transition: transform .2s, box-shadow .2s, background .2s, border-color .2s; }
+    .btn:hover { transform: translateY(-2px); }
+    .btn:active { transform: translateY(0) scale(.98); }
+    .btn-primary { color: white; background: linear-gradient(115deg, #1789f7, #1166d7); box-shadow: 0 9px 22px rgba(22,119,232,.24); }
+    .btn-primary:hover { background: linear-gradient(115deg, #329cff, #075cc7); box-shadow: 0 12px 25px rgba(22,119,232,.3); }
+    .btn-secondary { border-color: var(--line); color: #263251; background: rgba(255,255,255,.7); }
+    .btn-secondary:hover { border-color: rgba(22,119,232,.3); background: white; }
+    .btn-quiet { min-height: 42px; padding: 0 14px; color: #6e7890; background: transparent; }
+    .btn:disabled { cursor: wait; opacity: .65; transform: none; }
+    .benefits { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .benefit { min-height: 94px; padding: 15px; border: 1px solid rgba(32,66,123,.09); border-radius: 16px; background: rgba(255,255,255,.61); }
+    .benefit-icon { display: grid; width: 31px; height: 31px; margin-bottom: 8px; place-items: center; border-radius: 10px; color: var(--blue); background: #e9f3ff; }
+    .benefit strong { display: block; margin-bottom: 3px; font-size: 12px; }
+    .benefit span:last-child { color: var(--muted); font-size: 11px; }
+    .progress { display: flex; align-items: center; gap: 8px; margin: 0 0 28px; }
+    .progress span { width: 7px; height: 7px; border-radius: 20px; background: #cbd2df; transition: all .25s ease; }
+    .progress span.active { width: 25px; background: var(--blue); }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin: 22px 0 18px; }
+    .field { display: grid; gap: 7px; }
+    .field.full { grid-column: 1 / -1; }
+    label { color: #3b4662; font-size: 12px; font-weight: 700; }
+    input, select { width: 100%; min-height: 49px; padding: 0 14px; border: 1px solid #dce2ec; border-radius: 12px; outline: none; color: var(--ink); background: rgba(255,255,255,.8); transition: border-color .2s, box-shadow .2s; }
+    input::placeholder { color: #a1a9b8; }
+    input:focus, select:focus { border-color: #63aaf5; box-shadow: 0 0 0 4px rgba(22,119,232,.1); }
+    .inline-note { margin: 9px 0 0; color: var(--muted); font-size: 12px; }
+    .error { min-height: 19px; margin: 9px 0 0; color: #c3344a; font-size: 13px; }
+    .section-head { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin-bottom: 22px; }
+    .section-head .lead { margin-bottom: 0; }
+    .client-chip { flex: 0 0 auto; padding: 9px 12px; border: 1px solid #d8e9fb; border-radius: 99px; color: #185ca5; background: #eef7ff; font-size: 12px; font-weight: 700; }
+    .plans { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    .plan { position: relative; display: flex; min-height: 236px; flex-direction: column; padding: 20px; border: 1px solid #dfe5ef; border-radius: 19px; background: rgba(255,255,255,.76); cursor: pointer; transition: transform .22s, box-shadow .22s, border-color .22s, background .22s; }
+    .plan:hover { transform: translateY(-4px); border-color: #89baf0; box-shadow: 0 16px 30px rgba(23,78,145,.12); }
+    .plan.selected { border: 2px solid var(--blue); padding: 19px; background: #f4f9ff; box-shadow: 0 0 0 4px rgba(22,119,232,.09); }
+    .plan-badge { position: absolute; top: -11px; right: 12px; padding: 5px 9px; border-radius: 20px; color: white; background: #8c54e8; font-size: 9px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+    .plan-icon { display: grid; width: 45px; height: 45px; margin-bottom: 15px; place-items: center; border-radius: 14px; background: linear-gradient(140deg,#eaf5ff,#dbeaff); font-size: 24px; }
+    .plan h3 { margin-bottom: 4px; font: 800 17px Manrope,sans-serif; }
+    .plan-desc { min-height: 34px; margin-bottom: 16px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+    .price { margin-top: auto; color: var(--ink); font: 800 25px Manrope,sans-serif; letter-spacing: -.05em; }
+    .price small { color: var(--muted); font: 500 11px "DM Sans",sans-serif; letter-spacing: 0; }
+    .plan-foot { margin-top: 6px; color: var(--muted); font-size: 11px; }
+    .plan-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 21px; }
+    .summary { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin: 18px 0; padding: 15px 17px; border: 1px solid #dfe8f3; border-radius: 14px; background: rgba(255,255,255,.63); }
+    .summary span { color: var(--muted); font-size: 12px; }
+    .summary strong { font-size: 15px; }
+    .checkout-grid { display: grid; grid-template-columns: minmax(220px, 270px) 1fr; align-items: center; gap: 30px; margin-top: 20px; }
+    .qr-wrap { display: grid; min-height: 260px; place-items: center; padding: 17px; border: 1px solid #e4eaf2; border-radius: 20px; background: white; }
+    .qr-wrap img { width: min(100%, 235px); aspect-ratio: 1; object-fit: contain; }
+    .qr-placeholder { display: grid; width: 100%; aspect-ratio: 1; place-items: center; color: #8993a6; font-size: 13px; text-align: center; }
+    .pix-code { width: 100%; min-height: 84px; margin-top: 11px; padding: 12px; resize: vertical; border: 1px solid #dce2ec; border-radius: 12px; color: #49536b; background: rgba(255,255,255,.8); font: 11px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .wait-status { display: flex; align-items: center; gap: 10px; margin-top: 18px; color: #69748b; font-size: 12px; }
+    .spinner { width: 17px; height: 17px; flex: 0 0 auto; border: 2px solid #cfe2fa; border-top-color: var(--blue); border-radius: 50%; animation: spin .8s linear infinite; }
+    .success-icon { display: grid; width: 76px; height: 76px; margin: 5px auto 18px; place-items: center; border-radius: 50%; color: #158653; background: #e1f7eb; box-shadow: 0 0 0 10px rgba(40,197,112,.08); animation: pop .45s cubic-bezier(.2,.8,.25,1.5) both; }
+    .success-icon svg { width: 35px; height: 35px; }
+    .center { text-align: center; }
+    .success-card { max-width: 530px; margin: 20px auto; padding: 19px; border: 1px solid #dcebe1; border-radius: 16px; color: #52665b; background: rgba(246,255,249,.8); font-size: 13px; line-height: 1.65; text-align: left; }
+    .footer-note { margin: 20px 8px 0; color: rgba(255,255,255,.83); font-size: 11px; text-align: center; text-shadow: 0 1px 8px rgba(0,0,0,.4); }
+    @keyframes arrive { from { opacity: 0; transform: translateY(18px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    @keyframes fade-up { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes pop { from { opacity: 0; transform: scale(.5); } to { opacity: 1; transform: scale(1); } }
+    @media (max-width: 690px) {
+      body { padding: 18px 12px; background-attachment: scroll; }
+      .topline { margin: 0 5px 11px; }
+      .panel { min-height: unset; padding: 27px 21px; border-radius: 23px; }
+      .benefits { grid-template-columns: 1fr; gap: 8px; }
+      .benefit { min-height: unset; display: flex; align-items: center; gap: 11px; padding: 10px 12px; }
+      .benefit-icon { flex: 0 0 auto; margin: 0; }
+      .benefit-copy { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+      .plans { grid-template-columns: 1fr; gap: 12px; }
+      .plan { min-height: unset; display: grid; grid-template-columns: 48px 1fr auto; align-items: center; gap: 0 12px; padding: 14px; }
+      .plan.selected { padding: 13px; }
+      .plan-icon { grid-row: 1 / span 3; margin: 0; }
+      .plan h3 { margin: 0 0 3px; font-size: 15px; }
+      .plan-desc { min-height: 0; margin: 0; }
+      .plan .price { grid-column: 3; grid-row: 1 / span 2; text-align: right; font-size: 20px; }
+      .plan-foot { grid-column: 2 / 4; margin-top: 5px; }
+      .plan-badge { top: -8px; }
+      .checkout-grid { grid-template-columns: 1fr; gap: 18px; }
+      .qr-wrap { width: min(100%, 300px); min-height: unset; margin: 0 auto; }
+      .section-head { align-items: start; flex-direction: column; }
+    }
+    @media (max-width: 460px) {
+      .secure-note { font-size: 0; }
+      .secure-note svg { width: 17px; height: 17px; }
+      .form-grid { grid-template-columns: 1fr; gap: 12px; }
+      .field.full { grid-column: auto; }
+      .actions { flex-direction: column; }
+      .actions .btn, .plan-actions .btn-primary { width: 100%; }
+      .plan-actions { align-items: stretch; flex-direction: column-reverse; }
+      .summary { align-items: start; flex-direction: column; gap: 4px; }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topline">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">▶</span> PLAYTV <span style="font-weight:500;opacity:.82">+</span></div>
+      <div class="secure-note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 10V7a6 6 0 0 1 12 0v3"/><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M12 14v3"/></svg> Ambiente seguro</div>
+    </header>
+
+    <section class="panel" aria-live="polite">
+      <div class="view" id="view-home">
+        <p class="eyebrow">Entretenimento do seu jeito</p>
+        <h1>Uma tela. Seus favoritos. Sua próxima maratona.</h1>
+        <p class="lead">Escolha um combo e conclua seu cadastro em poucos passos. Se já é cliente, consulte seu número para renovar.</p>
+        <div class="actions">
+          <button class="btn btn-primary" type="button" data-go="view-cadastro">Quero escolher meu combo <span aria-hidden="true">→</span></button>
+          <button class="btn btn-secondary" type="button" data-go="view-consulta">Já sou cliente</button>
+        </div>
+        <div class="benefits">
+          <div class="benefit"><span class="benefit-icon">✦</span><span class="benefit-copy"><strong>Combos para você</strong><span>Encontre o período ideal</span></span></div>
+          <div class="benefit"><span class="benefit-icon">⌁</span><span class="benefit-copy"><strong>Pix fácil e seguro</strong><span>QR Code gerado na hora</span></span></div>
+          <div class="benefit"><span class="benefit-icon">✓</span><span class="benefit-copy"><strong>Cadastro sem complicação</strong><span>Seus dados ficam protegidos</span></span></div>
+        </div>
+      </div>
+
+      <div class="view hidden" id="view-cadastro">
+        <div class="progress" aria-label="Etapa 1 de 3"><span class="active"></span><span></span><span></span></div>
+        <p class="eyebrow">Novo por aqui?</p>
+        <h2>Vamos começar pelo seu cadastro.</h2>
+        <p class="lead">Preencha seus dados para salvar seu cadastro e preparar o pagamento.</p>
+        <form id="form-cadastro" novalidate>
+          <div class="form-grid">
+            <div class="field full"><label for="nome">Nome completo</label><input id="nome" name="nome" autocomplete="name" placeholder="Como podemos chamar você?" required minlength="2"></div>
+            <div class="field"><label for="telefone">WhatsApp com DDD</label><input id="telefone" name="telefone" type="tel" autocomplete="tel" inputmode="tel" placeholder="(11) 99999-9999" required></div>
+            <div class="field"><label for="email">E-mail</label><input id="email" name="email" type="email" autocomplete="email" placeholder="voce@email.com" required></div>
+            <div class="field full"><label for="marca_tv">Onde vai assistir?</label><select id="marca_tv" name="marca_tv" required><option value="" disabled selected>Selecione seu dispositivo</option><option>Smart TV Samsung</option><option>Smart TV LG</option><option>Roku TV</option><option>Android TV / TV Box</option><option>Fire TV Stick</option><option>Celular ou tablet</option><option>Outro dispositivo</option></select></div>
+          </div>
+          <p class="error" id="cadastro-erro" role="alert"></p>
+          <div class="actions"><button class="btn btn-primary" type="submit">Continuar para os combos <span aria-hidden="true">→</span></button><button class="btn btn-quiet" type="button" data-go="view-home">Voltar</button></div>
+        </form>
+      </div>
+
+      <div class="view hidden" id="view-consulta">
+        <div class="progress" aria-label="Etapa 1 de 3"><span class="active"></span><span></span><span></span></div>
+        <p class="eyebrow">Que bom ter você de volta</p>
+        <h2>Encontre seu cadastro.</h2>
+        <p class="lead">Digite o WhatsApp usado no seu cadastro para continuar.</p>
+        <form id="form-consulta" novalidate>
+          <div class="field"><label for="telefone-consulta">WhatsApp com DDD</label><input id="telefone-consulta" type="tel" inputmode="tel" autocomplete="tel" placeholder="(11) 99999-9999" required></div>
+          <p class="error" id="consulta-erro" role="alert"></p>
+          <div class="actions"><button class="btn btn-primary" type="submit">Buscar cadastro <span aria-hidden="true">→</span></button><button class="btn btn-quiet" type="button" data-go="view-home">Voltar</button></div>
+        </form>
+      </div>
+
+      <div class="view hidden" id="view-cadastro-existente">
+        <div class="progress" aria-label="Etapa 1 de 3"><span class="active"></span><span></span><span></span></div>
+        <p class="eyebrow">Cadastro encontrado</p>
+        <h2>Este WhatsApp já está cadastrado.</h2>
+        <p class="lead" id="cadastro-existente-detalhe">Encontramos um cadastro para este número. Como deseja continuar?</p>
+        <div class="success-card" id="cadastro-existente-resumo"></div>
+        <p class="error" id="cadastro-existente-erro" role="alert"></p>
+        <div class="actions">
+          <button class="btn btn-primary" id="atualizar-cadastro" type="button">Atualizar com os dados informados</button>
+          <button class="btn btn-secondary" id="usar-cadastro-existente" type="button">Manter cadastro e continuar</button>
+          <button class="btn btn-quiet" type="button" data-go="view-cadastro">Voltar e revisar</button>
+        </div>
+      </div>
+
+      <div class="view hidden" id="view-planos">
+        <div class="progress" aria-label="Etapa 2 de 3"><span class="active"></span><span class="active"></span><span></span></div>
+        <div class="section-head"><div><p class="eyebrow">Só falta escolher</p><h2>Qual combo combina com você?</h2><p class="lead">Selecione um período para seguir para o pagamento.</p></div><span class="client-chip hidden" id="cliente-chip"></span></div>
+        <div class="plans" role="radiogroup" aria-label="Combos disponíveis">
+          <button class="plan" type="button" data-plan="1" role="radio" aria-checked="false"><span class="plan-icon">🍿</span><h3>Combo Básico</h3><span class="plan-desc">Uma dose de diversão para todos os dias.</span><span class="price">R$ 30<small> / mês</small></span><span class="plan-foot">Cobrança de R$ 30,00 a cada mês</span></button>
+          <button class="plan" type="button" data-plan="3" role="radio" aria-checked="false"><span class="plan-badge">Mais escolhido</span><span class="plan-icon">🎬</span><h3>Combo Cinema</h3><span class="plan-desc">Mais tempo para curtir suas histórias.</span><span class="price">R$ 80<small> / 3 meses</small></span><span class="plan-foot">Equivale a R$ 26,67 por mês</span></button>
+          <button class="plan" type="button" data-plan="6" role="radio" aria-checked="false"><span class="plan-icon">⭐</span><h3>Combo Premium</h3><span class="plan-desc">Seu entretenimento por muito mais tempo.</span><span class="price">R$ 150<small> / 6 meses</small></span><span class="plan-foot">Equivale a R$ 25,00 por mês</span></button>
+        </div>
+        <p class="error" id="planos-erro" role="alert"></p>
+        <div class="plan-actions"><button class="btn btn-quiet" type="button" data-go="view-home">Voltar ao início</button><button class="btn btn-primary" id="continuar-pagamento" type="button" disabled>Continuar para pagamento <span aria-hidden="true">→</span></button></div>
+      </div>
+
+      <div class="view hidden" id="view-pix">
+        <div class="progress" aria-label="Etapa 3 de 3"><span class="active"></span><span class="active"></span><span class="active"></span></div>
+        <p class="eyebrow">Pagamento protegido</p>
+        <h2>Seu Pix está quase pronto.</h2>
+        <p class="lead">Escaneie o QR Code com o app do seu banco ou copie o código Pix.</p>
+        <div class="summary"><span id="resumo-plano">Combo escolhido</span><strong id="resumo-valor">R$ 0,00</strong></div>
+        <div class="checkout-grid">
+          <div class="qr-wrap" id="qr-wrap"><div class="qr-placeholder"><span class="spinner" aria-hidden="true"></span>&nbsp; Gerando QR Code seguro…</div></div>
+          <div><label for="pix-copia-cola">Pix Copia e Cola</label><textarea class="pix-code" id="pix-copia-cola" readonly placeholder="O código aparecerá aqui após a geração do Pix."></textarea><button class="btn btn-secondary" id="copiar-pix" type="button" style="width:100%;margin-top:10px" disabled>Copiar código Pix</button><div class="wait-status" id="payment-status"><span class="spinner" aria-hidden="true"></span><span>Aguardando a confirmação do pagamento…</span></div><p class="error" id="pix-erro" role="alert"></p></div>
+        </div>
+        <div class="plan-actions"><button class="btn btn-quiet" id="voltar-planos" type="button">Trocar combo</button><button class="btn btn-secondary hidden" id="tentar-novamente" type="button">Tentar novamente</button></div>
+      </div>
+
+      <div class="view hidden center" id="view-sucesso">
+        <div class="success-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6"/></svg></div>
+        <p class="eyebrow">Pagamento confirmado</p>
+        <h2>Obrigado, <span id="sucesso-nome">tudo certo!</span></h2>
+        <p class="lead" style="margin-left:auto;margin-right:auto">Seu pagamento foi confirmado. Seu cadastro e a transação foram registrados.</p>
+        <div class="success-card" id="dados-sucesso"></div>
+        <button class="btn btn-primary" type="button" data-go="view-home">Voltar ao início</button>
+      </div>
+    </section>
+    <p class="footer-note">Seus dados são usados apenas para processar seu cadastro e pagamento.</p>
+  </main>
+
+  <script>
+    const state = { cliente: null, clienteId: null, cadastroPendente: null, clienteEncontrado: null, plano: null, paymentId: null, polling: null, expirationTimer: null, expiraEm: null, valor: 0 };
+    const planos = {
+      1: { nome: 'Combo Básico', valor: 30 },
+      3: { nome: 'Combo Cinema', valor: 80 },
+      6: { nome: 'Combo Premium', valor: 150 }
+    };
+    const telefoneInputs = [document.getElementById('telefone'), document.getElementById('telefone-consulta')];
+
+    function showView(id) {
+      document.querySelectorAll('.view').forEach((view) => view.classList.toggle('hidden', view.id !== id));
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    document.querySelectorAll('[data-go]').forEach((button) => button.addEventListener('click', () => showView(button.dataset.go)));
+
+    telefoneInputs.forEach((input) => input.addEventListener('input', () => {
+      const digits = input.value.replace(/\D/g, '').slice(0, 13);
+      if (digits.length > 10) input.value = `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+      else if (digits.length > 6) input.value = `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+      else if (digits.length > 2) input.value = `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
+      else input.value = digits;
+    }));
+
+    function setCliente(cliente) {
+      state.cliente = cliente;
+      state.clienteId = null;
+      const chip = document.getElementById('cliente-chip');
+      chip.textContent = `Olá, ${cliente.nome.split(' ')[0]}!`;
+      chip.classList.remove('hidden');
+      showView('view-planos');
+    }
+
+    document.getElementById('form-cadastro').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const erro = document.getElementById('cadastro-erro');
+      erro.textContent = '';
+      if (!form.reportValidity()) return;
+      const data = Object.fromEntries(new FormData(form).entries());
+      data.telefone = data.telefone.replace(/\D/g, '');
+      if (data.telefone.length < 10 || data.telefone.length > 13) { erro.textContent = 'Confira o DDD e o número do WhatsApp.'; return; }
+      const submit = form.querySelector('button[type="submit"]');
+      submit.disabled = true;
+      try {
+        const result = await api('/api/consultar-telefone', { method: 'POST', body: JSON.stringify({ telefone: data.telefone }) });
+        if (result.encontrado) {
+          state.cadastroPendente = data;
+          state.clienteEncontrado = result.cliente;
+          document.getElementById('cadastro-existente-erro').textContent = '';
+          const vencimento = result.cliente.vigencia_ate ? `<br>Vigência atual até ${escapeHtml(formatDate(result.cliente.vigencia_ate))}.` : '<br>Este cadastro ainda não tem vigência registrada.';
+          document.getElementById('cadastro-existente-resumo').innerHTML = `<strong>${escapeHtml(result.cliente.nome)}</strong><br>WhatsApp: ${escapeHtml(result.cliente.telefone)}${vencimento}`;
+          showView('view-cadastro-existente');
+        } else {
+          setCliente(data);
+        }
+      } catch (error) {
+        erro.textContent = error.message;
+      } finally {
+        submit.disabled = false;
+      }
+    });
+
+    document.getElementById('atualizar-cadastro').addEventListener('click', () => {
+      if (!state.cadastroPendente) return;
+      setCliente(state.cadastroPendente);
+      state.cadastroPendente = null;
+      state.clienteEncontrado = null;
+    });
+
+    document.getElementById('usar-cadastro-existente').addEventListener('click', () => {
+      if (!state.clienteEncontrado) return;
+      setCliente(state.clienteEncontrado);
+      state.cadastroPendente = null;
+      state.clienteEncontrado = null;
+    });
+
+    document.getElementById('form-consulta').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const erro = document.getElementById('consulta-erro');
+      erro.textContent = '';
+      const telefone = document.getElementById('telefone-consulta').value.replace(/\D/g, '');
+      if (telefone.length < 10) { erro.textContent = 'Informe o WhatsApp com DDD.'; return; }
+      try {
+        const result = await api('/api/consultar-telefone', { method: 'POST', body: JSON.stringify({ telefone }) });
+        if (!result.encontrado) {
+          erro.textContent = 'Não encontramos esse número. Você pode fazer um novo cadastro.';
+          return;
+        }
+        setCliente(result.cliente);
+      } catch (error) { erro.textContent = error.message; }
+    });
+
+    document.querySelectorAll('.plan').forEach((button) => button.addEventListener('click', () => {
+      state.plano = Number(button.dataset.plan);
+      document.querySelectorAll('.plan').forEach((card) => {
+        const selected = card === button;
+        card.classList.toggle('selected', selected);
+        card.setAttribute('aria-checked', String(selected));
+      });
+      document.getElementById('continuar-pagamento').disabled = false;
+      document.getElementById('planos-erro').textContent = '';
+    }));
+
+    document.getElementById('continuar-pagamento').addEventListener('click', async (event) => {
+      const button = event.currentTarget;
+      const erro = document.getElementById('planos-erro');
+      erro.textContent = '';
+      if (!state.plano || !state.cliente) { erro.textContent = 'Selecione um combo para continuar.'; return; }
+      button.disabled = true;
+      button.textContent = 'Salvando cadastro…';
+      try {
+        const saved = await api('/api/cadastrar-cliente', { method: 'POST', body: JSON.stringify({ nome: state.cliente.nome, email: state.cliente.email, telefone: state.cliente.telefone, marca_tv: state.cliente.marca_tv }) });
+        state.clienteId = saved.cliente_id;
+        const plano = planos[state.plano];
+        state.valor = plano.valor;
+        document.getElementById('resumo-plano').textContent = plano.nome;
+        document.getElementById('resumo-valor').textContent = currency(plano.valor);
+        showView('view-pix');
+        await gerarPix();
+      } catch (error) {
+        erro.textContent = error.message;
+      } finally {
+        button.disabled = !state.plano;
+        button.innerHTML = 'Continuar para pagamento <span aria-hidden="true">→</span>';
+      }
+    });
+
+    async function api(path, options = {}) {
+      const response = await fetch(path, { ...options, headers: { 'Content-Type': 'application/json', ...(options.headers || {}) } });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || 'Não foi possível concluir. Tente novamente.');
+      return data;
+    }
+
+    async function gerarPix() {
+      limparTimersPagamento();
+      state.paymentId = null;
+      state.expiraEm = null;
+      const erro = document.getElementById('pix-erro');
+      const retry = document.getElementById('tentar-novamente');
+      erro.textContent = '';
+      retry.classList.add('hidden');
+      document.getElementById('qr-wrap').innerHTML = '<div class="qr-placeholder"><span class="spinner" aria-hidden="true"></span>&nbsp; Gerando QR Code seguro…</div>';
+      document.getElementById('pix-copia-cola').value = '';
+      document.getElementById('copiar-pix').disabled = true;
+      try {
+        const payment = await api('/api/gerar-pix', { method: 'POST', body: JSON.stringify({ cliente_id: state.clienteId, plano_meses: state.plano }) });
+        state.paymentId = payment.payment_id;
+        const image = document.createElement('img');
+        image.alt = 'QR Code para pagamento Pix';
+        image.src = `data:image/png;base64,${payment.qr_code_base64}`;
+        document.getElementById('qr-wrap').replaceChildren(image);
+        document.getElementById('pix-copia-cola').value = payment.qr_code;
+        document.getElementById('copiar-pix').disabled = false;
+        document.getElementById('payment-status').innerHTML = '<span class="spinner" aria-hidden="true"></span><span>Aguardando a confirmação do pagamento…</span>';
+        iniciarConsultaPagamento(payment.expira_em);
+      } catch (error) {
+        document.getElementById('qr-wrap').innerHTML = '<div class="qr-placeholder">Não foi possível gerar o QR Code.</div>';
+        erro.textContent = error.message;
+        retry.classList.remove('hidden');
+      }
+    }
+
+    function limparTimersPagamento() {
+      if (state.polling) clearInterval(state.polling);
+      if (state.expirationTimer) clearInterval(state.expirationTimer);
+      state.polling = null;
+      state.expirationTimer = null;
+    }
+
+    function iniciarConsultaPagamento(expiraEm) {
+      limparTimersPagamento();
+      state.expiraEm = Date.parse(expiraEm || '');
+      consultarPagamento();
+      state.polling = setInterval(consultarPagamento, 8000);
+      state.expirationTimer = setInterval(() => {
+        if (!Number.isFinite(state.expiraEm)) return;
+        const segundos = Math.max(0, Math.ceil((state.expiraEm - Date.now()) / 1000));
+        if (segundos <= 0) {
+          clearInterval(state.expirationTimer);
+          state.expirationTimer = null;
+          consultarPagamento();
+          return;
+        }
+        const minutosRestantes = String(Math.floor(segundos / 60)).padStart(2, '0');
+        const segundosRestantes = String(segundos % 60).padStart(2, '0');
+        document.getElementById('payment-status').innerHTML = `<span class="spinner" aria-hidden="true"></span><span>Aguardando confirmação · Pix expira em ${minutosRestantes}:${segundosRestantes}</span>`;
+      }, 1000);
+    }
+
+    async function consultarPagamento() {
+      if (!state.paymentId) return;
+      const pixExpirou = Number.isFinite(state.expiraEm) && Date.now() >= state.expiraEm;
+      try {
+        const payment = await api(`/api/status-pagamento/${encodeURIComponent(state.paymentId)}`);
+        if (payment.status === 'approved') {
+          limparTimersPagamento();
+          document.getElementById('sucesso-nome').textContent = `${payment.cliente.nome.split(' ')[0]}, tudo certo!`;
+          const validade = payment.vigencia_ate ? `<br>Seu acesso está válido até ${escapeHtml(formatDate(payment.vigencia_ate))}.` : '';
+          document.getElementById('dados-sucesso').innerHTML = `<strong>${escapeHtml(planos[payment.plano_meses].nome)}</strong><br>Valor confirmado: ${currency(payment.valor)}${validade}<br>Seu cadastro e o pagamento foram registrados.`;
+          showView('view-sucesso');
+        } else if (['rejected', 'cancelled', 'expired', 'refunded', 'charged_back'].includes(payment.status)) {
+          limparTimersPagamento();
+          document.getElementById('payment-status').textContent = payment.status === 'expired'
+            ? 'Este Pix expirou. Gere um novo código para continuar.'
+            : 'Este pagamento não foi aprovado. Gere um novo Pix para tentar novamente.';
+          if (payment.status === 'expired') {
+            document.getElementById('qr-wrap').innerHTML = '<div class="qr-placeholder">Este Pix expirou. Gere um novo código para continuar.</div>';
+            document.getElementById('pix-copia-cola').value = '';
+            document.getElementById('copiar-pix').disabled = true;
+          }
+          document.getElementById('tentar-novamente').classList.remove('hidden');
+        } else if (pixExpirou) {
+          encerrarPixExpirado();
+        }
+      } catch (error) {
+        if (pixExpirou) encerrarPixExpirado();
+        else document.getElementById('payment-status').innerHTML = `<span>${escapeHtml(error.message)} A consulta será tentada novamente.</span>`;
+      }
+    }
+
+    function encerrarPixExpirado() {
+      limparTimersPagamento();
+      document.getElementById('qr-wrap').innerHTML = '<div class="qr-placeholder">Este Pix expirou. Gere um novo código para continuar.</div>';
+      document.getElementById('pix-copia-cola').value = '';
+      document.getElementById('copiar-pix').disabled = true;
+      document.getElementById('payment-status').textContent = 'Tempo para pagamento encerrado. Este Pix não pode mais ser pago.';
+      const retry = document.getElementById('tentar-novamente');
+      retry.textContent = 'Gerar novo Pix';
+      retry.classList.remove('hidden');
+    }
+
+    document.getElementById('copiar-pix').addEventListener('click', async () => {
+      const value = document.getElementById('pix-copia-cola').value;
+      try {
+        await navigator.clipboard.writeText(value);
+        document.getElementById('copiar-pix').textContent = 'Código copiado ✓';
+        setTimeout(() => { document.getElementById('copiar-pix').textContent = 'Copiar código Pix'; }, 1800);
+      } catch {
+        const field = document.getElementById('pix-copia-cola');
+        field.select();
+        document.execCommand('copy');
+      }
+    });
+
+    document.getElementById('voltar-planos').addEventListener('click', () => {
+      limparTimersPagamento();
+      state.paymentId = null;
+      state.expiraEm = null;
+      showView('view-planos');
+    });
+    document.getElementById('tentar-novamente').addEventListener('click', () => {
+      document.getElementById('tentar-novamente').textContent = 'Tentar novamente';
+      gerarPix();
+    });
+
+    function currency(value) { return Number(value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); }
+    function formatDate(value) {
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+    }
+    function escapeHtml(value) { return String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]); }
+  </script>
+</body>
+</html>

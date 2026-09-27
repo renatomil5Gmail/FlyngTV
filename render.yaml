@@ -1,0 +1,20 @@
+# Implantação grátis para validar integração e webhook. Não usar para clientes:
+# o plano Free hiberna e o filesystem/SQLite é apagado ao reiniciar/redeploy.
+services:
+  - type: web
+    name: playtv-cadastro
+    runtime: python
+    plan: free
+    region: ohio
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/saude
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: MERCADOPAGO_TOKEN
+        sync: false
+      - key: MERCADOPAGO_WEBHOOK_SECRET
+        sync: false
+      - key: PIX_EXPIRATION_MINUTES
+        value: 30
