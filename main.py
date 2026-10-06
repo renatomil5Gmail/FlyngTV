@@ -5,15 +5,18 @@ import hashlib
 import hmac
 import logging
 import calendar
+import unicodedata
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import mercadopago
 import requests
+from cryptography.fernet import Fernet, InvalidToken
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -27,6 +30,10 @@ except ValueError:
 
 app = FastAPI(title="PlayTV — Cadastro e pagamentos")
 logger = logging.getLogger(__name__)
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "").strip()
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+LIVE21_CREDENTIAL_KEY = os.getenv("LIVE21_CREDENTIAL_KEY", "").strip()
+admin_security = HTTPBasic()
 MP_ACCESS_TOKEN = os.getenv("MERCADOPAGO_TOKEN")
 MP_WEBHOOK_SECRET = os.getenv("MERCADOPAGO_WEBHOOK_SECRET")
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
@@ -96,7 +103,71 @@ def criar_tabelas():
                 expira_em TEXT,
                 ativado_em TEXT
             );
+            CREATE TABLE IF NOT EXISTS live21_jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                payment_id_mp TEXT NOT NULL UNIQUE REFERENCES transacoes(payment_id_mp),
+                cliente_id INTEGER NOT NULL REFERENCES clientes(id),
+                plano_meses INTEGER NOT NULL,
+                telas INTEGER NOT NULL,
+                expected_expira_em TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'processing', 'succeeded', 'manual_review', 'failed')),
+                attempts INTEGER NOT NULL DEFAULT 0,
+                error_code TEXT,
+                leased_em TEXT,
+                criado_em TEXT NOT NULL,
+                atualizado_em TEXT NOT NULL,
+                concluido_em TEXT
+            );
+            CREATE TABLE IF NOT EXISTS live21_contas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cliente_id INTEGER REFERENCES clientes(id) ON DELETE SET NULL,
+                referencia TEXT NOT NULL,
+                external_id TEXT,
+                usuario_cifrado BLOB,
+                senha_cifrada BLOB,
+                dados_cifrados BLOB,
+                expira_em TEXT,
+                criado_em TEXT NOT NULL,
+                atualizado_em TEXT NOT NULL,
+                conta_teste INTEGER NOT NULL DEFAULT 0 CHECK (conta_teste IN (0, 1)),
+                CHECK ((usuario_cifrado IS NOT NULL AND senha_cifrada IS NOT NULL) OR dados_cifrados IS NOT NULL)
+            );
             """
+        )
+        colunas_live21 = {
+            row["name"] for row in connection.execute("PRAGMA table_info(live21_contas)")
+        }
+        if "dados_cifrados" not in colunas_live21:
+            connection.executescript(
+                """
+                CREATE TABLE live21_contas_v2 (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    cliente_id INTEGER REFERENCES clientes(id) ON DELETE SET NULL,
+                    referencia TEXT NOT NULL,
+                    usuario_cifrado BLOB,
+                    senha_cifrada BLOB,
+                    dados_cifrados BLOB,
+                    expira_em TEXT,
+                    criado_em TEXT NOT NULL,
+                    atualizado_em TEXT NOT NULL,
+                    conta_teste INTEGER NOT NULL DEFAULT 0 CHECK (conta_teste IN (0, 1)),
+                    CHECK ((usuario_cifrado IS NOT NULL AND senha_cifrada IS NOT NULL) OR dados_cifrados IS NOT NULL)
+                );
+                INSERT INTO live21_contas_v2
+                    (id, cliente_id, referencia, usuario_cifrado, senha_cifrada, expira_em, criado_em, atualizado_em, conta_teste)
+                SELECT id, cliente_id, referencia, usuario_cifrado, senha_cifrada, expira_em, criado_em, atualizado_em, conta_teste
+                FROM live21_contas;
+                DROP TABLE live21_contas;
+                ALTER TABLE live21_contas_v2 RENAME TO live21_contas;
+                """
+            )
+        colunas_live21 = {
+            row["name"] for row in connection.execute("PRAGMA table_info(live21_contas)")
+        }
+        if "external_id" not in colunas_live21:
+            connection.execute("ALTER TABLE live21_contas ADD COLUMN external_id TEXT")
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS live21_external_id_unique ON live21_contas(external_id) WHERE external_id IS NOT NULL"
         )
         colunas_clientes = {
             row["name"] for row in connection.execute("PRAGMA table_info(clientes)")
@@ -164,11 +235,16 @@ def requisicao_supabase(metodo: str, tabela: str, *, params: dict | None = None,
             detail="Não foi possível consultar ou salvar o cadastro no Supabase. Tente novamente ou fale com o suporte.",
         ) from exc
     if not response.content:
-        return None
-    try:
-        return response.json()
-    except ValueError as exc:
-        raise HTTPException(status_code=502, detail="O Supabase retornou uma resposta inválida.") from exc
+        data = None
+    else:
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise HTTPException(status_code=502, detail="O Supabase retornou uma resposta inválida.") from exc
+    if prefer and "count=exact" in prefer:
+        total_value = response.headers.get("content-range", "").rsplit("/", 1)[-1]
+        return {"data": data, "total": int(total_value) if total_value.isdigit() else 0}
+    return data
 
 
 def normalizar_telefone(telefone: str) -> str:
@@ -377,6 +453,300 @@ class GerarPixRequest(BaseModel):
     telas: int = Field(default=1, ge=1, le=4)
 
 
+class CredenciaisLive21TesteRequest(BaseModel):
+    referencia: str = Field(min_length=1, max_length=120)
+    usuario: str = Field(min_length=1, max_length=120)
+    senha: str = Field(min_length=1, max_length=240)
+    expira_em: str | None = Field(default=None, max_length=40)
+
+    @field_validator("referencia", "usuario")
+    @classmethod
+    def limpar_credencial_publica(cls, value: str) -> str:
+        return value.strip()
+
+
+class DadosLive21TesteRequest(BaseModel):
+    referencia: str = Field(min_length=1, max_length=120)
+    dados: str = Field(min_length=1, max_length=5000)
+    expira_em: str | None = Field(default=None, max_length=40)
+    external_id: str | None = Field(default=None, max_length=80)
+
+    @field_validator("referencia")
+    @classmethod
+    def limpar_referencia(cls, value: str) -> str:
+        return value.strip()
+
+
+def cifra_live21() -> Fernet:
+    key = LIVE21_CREDENTIAL_KEY
+    if not key:
+        if EM_RENDER:
+            raise HTTPException(status_code=503, detail="Configure LIVE21_CREDENTIAL_KEY nos secrets do servidor.")
+        key_path = BASE_DIR / ".live21-credentials.key"
+        try:
+            key_bytes = key_path.read_bytes()
+        except FileNotFoundError:
+            generated_key = Fernet.generate_key()
+            try:
+                descriptor = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            except FileExistsError:
+                key_bytes = key_path.read_bytes()
+            else:
+                with os.fdopen(descriptor, "wb") as key_file:
+                    key_file.write(generated_key)
+                key_bytes = generated_key
+        key = key_bytes.decode("ascii").strip()
+    try:
+        return Fernet(key.encode("ascii"))
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=503, detail="LIVE21_CREDENTIAL_KEY não é uma chave Fernet válida.") from exc
+
+
+def salvar_credenciais_live21_teste(req: CredenciaisLive21TesteRequest) -> int:
+    cipher = cifra_live21()
+    agora = agora_utc().isoformat()
+    with closing(conectar_banco()) as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO live21_contas
+                (referencia, usuario_cifrado, senha_cifrada, expira_em, criado_em, atualizado_em, conta_teste)
+            VALUES (?, ?, ?, ?, ?, ?, 1)
+            """,
+            (
+                req.referencia,
+                cipher.encrypt(req.usuario.encode("utf-8")),
+                cipher.encrypt(req.senha.encode("utf-8")),
+                req.expira_em,
+                agora,
+                agora,
+            ),
+        )
+        connection.commit()
+        return int(cursor.lastrowid)
+
+
+def salvar_dados_live21_teste(req: DadosLive21TesteRequest) -> int:
+    cipher = cifra_live21()
+    agora = agora_utc().isoformat()
+    usuario, senha = extrair_credenciais_live21(req.dados)
+    with closing(conectar_banco()) as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO live21_contas
+                (referencia, external_id, usuario_cifrado, senha_cifrada, dados_cifrados, expira_em, criado_em, atualizado_em, conta_teste)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+            """,
+            (
+                req.referencia,
+                req.external_id,
+                cipher.encrypt(usuario.encode("utf-8")) if usuario else None,
+                cipher.encrypt(senha.encode("utf-8")) if senha else None,
+                cipher.encrypt(req.dados.encode("utf-8")),
+                req.expira_em,
+                agora,
+                agora,
+            ),
+        )
+        connection.commit()
+        return int(cursor.lastrowid)
+
+
+def extrair_credenciais_live21(dados: str) -> tuple[str | None, str | None]:
+    usuario = None
+    senha = None
+    lines = [line.strip() for line in dados.splitlines() if line.strip()]
+    for index, line in enumerate(lines):
+        label, separator, value = line.partition(":")
+        normalized_label = unicodedata.normalize("NFKD", label).encode("ascii", "ignore").decode("ascii").strip().lower()
+        value = value.strip() if separator else (lines[index + 1] if index + 1 < len(lines) else "")
+        if normalized_label in ("usuario", "user", "login"):
+            usuario = value or None
+        elif normalized_label in ("senha", "password", "pass"):
+            senha = value or None
+    return usuario, senha
+
+
+def recuperar_credenciais_live21_teste(conta_id: int) -> dict | None:
+    cipher = cifra_live21()
+    with closing(conectar_banco()) as connection:
+        conta = connection.execute(
+            "SELECT referencia, external_id, usuario_cifrado, senha_cifrada, dados_cifrados, expira_em FROM live21_contas WHERE id = ? AND conta_teste = 1",
+            (conta_id,),
+        ).fetchone()
+    if conta is None:
+        return None
+    try:
+        usuario = cipher.decrypt(bytes(conta["usuario_cifrado"])).decode("utf-8") if conta["usuario_cifrado"] else None
+        senha = cipher.decrypt(bytes(conta["senha_cifrada"])).decode("utf-8") if conta["senha_cifrada"] else None
+        if (not usuario or not senha) and conta["dados_cifrados"] is not None:
+            dados = cipher.decrypt(bytes(conta["dados_cifrados"])).decode("utf-8")
+            usuario, senha = extrair_credenciais_live21(dados)
+            if usuario and senha:
+                connection = conectar_banco()
+                with closing(connection) as update_connection:
+                    update_connection.execute(
+                        "UPDATE live21_contas SET usuario_cifrado = ?, senha_cifrada = ? WHERE id = ?",
+                        (cipher.encrypt(usuario.encode("utf-8")), cipher.encrypt(senha.encode("utf-8")), conta_id),
+                    )
+                    update_connection.commit()
+        if not usuario or not senha:
+            return None
+    except (InvalidToken, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=500, detail="Não foi possível descriptografar a conta de teste Live21.") from exc
+    return {
+        "referencia": conta["referencia"],
+        "external_id": conta["external_id"],
+        "usuario": usuario,
+        "senha": senha,
+        "expira_em": conta["expira_em"],
+    }
+
+
+def atualizar_conta_live21_teste(conta_id: int, *, external_id: str | None, expira_em: str) -> None:
+    with closing(conectar_banco()) as connection:
+        connection.execute(
+            "UPDATE live21_contas SET external_id = COALESCE(?, external_id), expira_em = ?, atualizado_em = ? WHERE id = ? AND conta_teste = 1",
+            (external_id, expira_em, agora_utc().isoformat(), conta_id),
+        )
+        connection.commit()
+
+
+def salvar_conta_live21_cliente(
+    cliente_id: int,
+    *,
+    external_id: str,
+    usuario: str,
+    senha: str,
+    expira_em: str,
+) -> None:
+    cipher = cifra_live21()
+    now = agora_utc().isoformat()
+    with closing(conectar_banco()) as connection:
+        existing = connection.execute(
+            "SELECT id FROM live21_contas WHERE cliente_id = ? AND conta_teste = 0 ORDER BY id DESC LIMIT 1",
+            (cliente_id,),
+        ).fetchone()
+        values = (
+            external_id,
+            cipher.encrypt(usuario.encode("utf-8")),
+            cipher.encrypt(senha.encode("utf-8")),
+            expira_em,
+            now,
+        )
+        if existing:
+            connection.execute(
+                """
+                UPDATE live21_contas SET external_id = ?, usuario_cifrado = ?, senha_cifrada = ?,
+                    dados_cifrados = NULL, expira_em = ?, atualizado_em = ? WHERE id = ?
+                """,
+                (*values, existing["id"]),
+            )
+        else:
+            connection.execute(
+                """
+                INSERT INTO live21_contas
+                    (cliente_id, referencia, external_id, usuario_cifrado, senha_cifrada, expira_em, criado_em, atualizado_em, conta_teste)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+                """,
+                (
+                    cliente_id,
+                    f"Cliente {cliente_id}",
+                    external_id,
+                    cipher.encrypt(usuario.encode("utf-8")),
+                    cipher.encrypt(senha.encode("utf-8")),
+                    expira_em,
+                    now,
+                    now,
+                ),
+            )
+        connection.commit()
+
+
+def obter_conta_live21_cliente(cliente_id: int) -> dict | None:
+    cipher = cifra_live21()
+    with closing(conectar_banco()) as connection:
+        row = connection.execute(
+            """
+            SELECT id, external_id, usuario_cifrado, senha_cifrada, expira_em
+            FROM live21_contas WHERE cliente_id = ? AND conta_teste = 0
+            ORDER BY id DESC LIMIT 1
+            """,
+            (cliente_id,),
+        ).fetchone()
+    if row is None or not row["usuario_cifrado"] or not row["senha_cifrada"]:
+        return None
+    try:
+        return {
+            "id": int(row["id"]),
+            "external_id": row["external_id"],
+            "usuario": cipher.decrypt(bytes(row["usuario_cifrado"])).decode("utf-8"),
+            "senha": cipher.decrypt(bytes(row["senha_cifrada"])).decode("utf-8"),
+            "expira_em": row["expira_em"],
+        }
+    except (InvalidToken, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=500, detail="Não foi possível descriptografar a conta Live21 vinculada.") from exc
+
+
+def claim_live21_job(lease_minutes: int = 5) -> dict | None:
+    now = agora_utc()
+    stale_before = (now - timedelta(minutes=lease_minutes)).isoformat()
+    with closing(conectar_banco()) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        job = connection.execute(
+            """
+            SELECT j.id FROM live21_jobs j
+            WHERE j.attempts < 3 AND (
+                j.status = 'queued' OR (j.status = 'processing' AND j.leased_em < ?)
+            )
+            ORDER BY j.criado_em ASC LIMIT 1
+            """,
+            (stale_before,),
+        ).fetchone()
+        if job is None:
+            connection.commit()
+            return None
+        connection.execute(
+            "UPDATE live21_jobs SET status = 'processing', attempts = attempts + 1, leased_em = ?, atualizado_em = ?, error_code = NULL WHERE id = ?",
+            (now.isoformat(), now.isoformat(), job["id"]),
+        )
+        claimed = connection.execute(
+            """
+            SELECT j.id, j.payment_id_mp, j.cliente_id, j.plano_meses, j.telas, j.expected_expira_em, j.attempts,
+                c.nome, c.email, c.telefone, c.marca_tv
+            FROM live21_jobs j JOIN clientes c ON c.id = j.cliente_id
+            WHERE j.id = ?
+            """,
+            (job["id"],),
+        ).fetchone()
+        connection.commit()
+    return dict(claimed) if claimed else None
+
+
+def finalizar_live21_job(job_id: int, *, error_code: str | None = None) -> None:
+    now = agora_utc().isoformat()
+    with closing(conectar_banco()) as connection:
+        job = connection.execute(
+            "SELECT attempts FROM live21_jobs WHERE id = ? AND status = 'processing'",
+            (job_id,),
+        ).fetchone()
+        if job is None:
+            return
+        if error_code is None:
+            status = "succeeded"
+            completed_at = now
+        elif int(job["attempts"]) >= 3:
+            status = "manual_review"
+            completed_at = None
+        else:
+            status = "queued"
+            completed_at = None
+        connection.execute(
+            "UPDATE live21_jobs SET status = ?, error_code = ?, leased_em = NULL, atualizado_em = ?, concluido_em = ? WHERE id = ?",
+            (status, error_code, now, completed_at, job_id),
+        )
+        connection.commit()
+
+
 def agora_utc() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -442,7 +812,7 @@ def registrar_status_pagamento(payment_id: str, payment: dict) -> dict | None:
                 return None
             vigencia_atual = interpretar_data(cliente["vigencia_ate"])
             inicio_vigencia = max(agora, vigencia_atual) if vigencia_atual else agora
-            vigencia_ate = adicionar_meses(inicio_vigencia, int(transacao["plano_meses"]))
+            vigencia_ate = inicio_vigencia + timedelta(days=30 * int(transacao["plano_meses"]))
             if supabase_configurado():
                 if not cliente["supabase_id"]:
                     raise HTTPException(status_code=503, detail="O cadastro não está vinculado ao Supabase; fale com o suporte antes de ativar a renovação.")
@@ -464,6 +834,25 @@ def registrar_status_pagamento(payment_id: str, payment: dict) -> dict | None:
                 "UPDATE transacoes SET ativado_em = ? WHERE payment_id_mp = ? AND ativado_em IS NULL",
                 (agora.isoformat(), payment_id),
             )
+            job_status = "queued" if int(transacao["plano_meses"]) == 1 and int(transacao["telas"]) == 1 else "manual_review"
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO live21_jobs
+                    (payment_id_mp, cliente_id, plano_meses, telas, expected_expira_em, status, error_code, criado_em, atualizado_em)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    payment_id,
+                    int(transacao["cliente_id"]),
+                    int(transacao["plano_meses"]),
+                    int(transacao["telas"]),
+                    vigencia_ate.isoformat(),
+                    job_status,
+                    None if job_status == "queued" else "manual_review_plan_or_screens",
+                    agora.isoformat(),
+                    agora.isoformat(),
+                ),
+            )
         else:
             cliente = connection.execute(
                 "SELECT vigencia_ate FROM clientes WHERE id = ?",
@@ -482,6 +871,275 @@ def registrar_status_pagamento(payment_id: str, payment: dict) -> dict | None:
 @app.get("/", response_class=HTMLResponse)
 def pagina_inicial():
     return HTMLResponse((BASE_DIR / "index.html").read_text(encoding="utf-8"))
+
+
+def autenticar_admin(credentials: HTTPBasicCredentials = Depends(admin_security)) -> None:
+    if not ADMIN_USERNAME or not ADMIN_PASSWORD:
+        raise HTTPException(status_code=503, detail="Configure ADMIN_USERNAME e ADMIN_PASSWORD no servidor.")
+    usuario_valido = hmac.compare_digest(credentials.username.encode("utf-8"), ADMIN_USERNAME.encode("utf-8"))
+    senha_valida = hmac.compare_digest(credentials.password.encode("utf-8"), ADMIN_PASSWORD.encode("utf-8"))
+    if not (usuario_valido & senha_valida):
+        raise HTTPException(
+            status_code=401,
+            detail="Credenciais administrativas inválidas.",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+
+def filtros_supabase_admin(situacao: str) -> dict[str, str]:
+    agora = agora_utc()
+    filtros: dict[str, str] = {}
+    if situacao == "ativos":
+        filtros["vigencia_ate"] = f"gte.{agora.isoformat()}"
+    elif situacao == "vencidos":
+        filtros["vigencia_ate"] = f"lt.{agora.isoformat()}"
+    elif situacao == "vencendo":
+        filtros["and"] = f"(vigencia_ate.gte.{agora.isoformat()},vigencia_ate.lte.{(agora + timedelta(days=7)).isoformat()})"
+    elif situacao == "sem-vigencia":
+        filtros["vigencia_ate"] = "is.null"
+    return filtros
+
+
+def contar_clientes_admin(filtros: dict[str, str] | None = None) -> int:
+    resultado = requisicao_supabase(
+        "GET",
+        "clientes",
+        params={"select": "id", "limit": "1", **(filtros or {})},
+        prefer="count=exact",
+    )
+    return int(resultado.get("total", 0)) if isinstance(resultado, dict) else 0
+
+
+@app.get("/admin", response_class=HTMLResponse)
+def pagina_admin(_: None = Depends(autenticar_admin)):
+    return HTMLResponse(
+        (BASE_DIR / "admin.html").read_text(encoding="utf-8"),
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/admin/live21/capture", response_class=HTMLResponse)
+def pagina_captura_live21(_: None = Depends(autenticar_admin)):
+    html = """<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Guardar credenciais Live21</title>
+<style>
+body{margin:0;background:#f3f6f8;color:#172438;font:14px 'DM Sans',sans-serif}main{width:min(680px,calc(100% - 32px));margin:42px auto}h1{font:700 24px 'Manrope',sans-serif}form{display:grid;gap:14px}label{display:grid;gap:7px;font-weight:700}input,textarea,button{font:inherit}input{padding:11px;border:1px solid #dce3e9;border-radius:6px;background:white}textarea{position:fixed;top:-2000px;left:0;width:1px;height:1px;padding:0;border:0;opacity:0}button{min-height:42px;padding:0 16px;border:0;border-radius:6px;color:white;background:#146c9b;font-weight:700}#result{min-height:22px;color:#18744f}
+</style></head><body><main><h1>Guardar dados do teste Live21</h1>
+<form id="capture"><label>Referência do teste<input name="referencia" value="RPA TESTE" required maxlength="120"></label>
+<label>Expiração<input name="expira_em" value="2026-11-06" placeholder="YYYY-MM-DD"></label>
+<textarea id="clipboard-sink" aria-hidden="true" tabindex="-1" autocomplete="off"></textarea>
+<button type="button" id="save-copy">Guardar credenciais copiadas</button><p id="result" role="status"></p></form>
+<script>
+document.getElementById('save-copy').addEventListener('click',async()=>{const form=document.getElementById('capture');const button=document.getElementById('save-copy');const sink=document.getElementById('clipboard-sink');const result=document.getElementById('result');button.disabled=true;result.textContent='';try{const dados=sink.value;if(!dados.trim())throw new Error('Cole os dados copiados do painel antes de salvar.');const values=Object.fromEntries(new FormData(form));values.dados=dados;const response=await fetch('/api/admin/live21/test-data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(values),cache:'no-store'});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.detail||'Falha ao guardar.');sink.value='';result.textContent='Dados guardados cifrados. Registro '+data.id+'.';}catch(error){result.textContent=error.message;}finally{button.disabled=false;}});
+</script>
+</script></main></body></html>"""
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/admin/live21/test-data", status_code=201)
+def receber_dados_live21_teste(
+    req: DadosLive21TesteRequest,
+    response: Response,
+    _: None = Depends(autenticar_admin),
+):
+    conta_id = salvar_dados_live21_teste(req)
+    response.headers["Cache-Control"] = "no-store"
+    return {"stored": True, "id": conta_id}
+
+
+@app.get("/api/admin/resumo")
+def resumo_admin(response: Response, _: None = Depends(autenticar_admin)):
+    garantir_backend_clientes()
+    agora = agora_utc()
+    limite_vencimento = agora + timedelta(days=7)
+    if supabase_configurado():
+        total_clientes = contar_clientes_admin()
+        clientes_ativos = contar_clientes_admin(filtros_supabase_admin("ativos"))
+        clientes_vencidos = contar_clientes_admin(filtros_supabase_admin("vencidos"))
+        clientes_vencendo = contar_clientes_admin(filtros_supabase_admin("vencendo"))
+    else:
+        with closing(conectar_banco()) as connection:
+            contagens = connection.execute(
+                """
+                SELECT COUNT(*) AS total,
+                    SUM(CASE WHEN datetime(vigencia_ate) >= datetime(?) THEN 1 ELSE 0 END) AS ativos,
+                    SUM(CASE WHEN datetime(vigencia_ate) < datetime(?) THEN 1 ELSE 0 END) AS vencidos,
+                    SUM(CASE WHEN datetime(vigencia_ate) >= datetime(?) AND datetime(vigencia_ate) <= datetime(?) THEN 1 ELSE 0 END) AS vencendo
+                FROM clientes
+                """,
+                (agora.isoformat(), agora.isoformat(), agora.isoformat(), limite_vencimento.isoformat()),
+            ).fetchone()
+        total_clientes = int(contagens["total"] or 0)
+        clientes_ativos = int(contagens["ativos"] or 0)
+        clientes_vencidos = int(contagens["vencidos"] or 0)
+        clientes_vencendo = int(contagens["vencendo"] or 0)
+
+    inicio_mes = agora.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    with closing(conectar_banco()) as connection:
+        pagamentos = connection.execute(
+            """
+            SELECT COUNT(CASE WHEN status = 'pending' THEN 1 END) AS pendentes,
+                COALESCE(SUM(CASE WHEN status = 'approved' AND ativado_em >= ? THEN valor ELSE 0 END), 0) AS receita_mes
+            FROM transacoes
+            """,
+            (inicio_mes,),
+        ).fetchone()
+    response.headers["Cache-Control"] = "no-store"
+    return {
+        "clientes_total": total_clientes,
+        "clientes_ativos": clientes_ativos,
+        "clientes_vencidos": clientes_vencidos,
+        "clientes_vencendo": clientes_vencendo,
+        "pagamentos_pendentes": int(pagamentos["pendentes"] or 0),
+        "receita_mes": float(pagamentos["receita_mes"] or 0),
+        "atualizado_em": agora.isoformat(),
+    }
+
+
+@app.get("/api/admin/clientes")
+def listar_clientes_admin(
+    response: Response,
+    q: str = "",
+    situacao: str = "",
+    pagina: int = 1,
+    por_pagina: int = 50,
+    _: None = Depends(autenticar_admin),
+):
+    garantir_backend_clientes()
+    if situacao not in ("", "ativos", "vencidos", "vencendo", "sem-vigencia"):
+        raise HTTPException(status_code=422, detail="Filtro de situação inválido.")
+    pagina = max(1, pagina)
+    por_pagina = max(1, min(100, por_pagina))
+    offset = (pagina - 1) * por_pagina
+    termo = re.sub(r"[^A-Za-z0-9@._+\-\s]", "", q).strip()[:80]
+
+    if supabase_configurado():
+        filtros = filtros_supabase_admin(situacao)
+        if termo:
+            filtros["or"] = f"(nome.ilike.*{termo}*,email.ilike.*{termo}*,telefone.ilike.*{termo}*)"
+        resultado = requisicao_supabase(
+            "GET",
+            "clientes",
+            params={
+                "select": "id,nome,telefone,email,marca_tv,created_at,vigencia_ate,telas",
+                "order": "created_at.desc",
+                "limit": str(por_pagina),
+                "offset": str(offset),
+                **filtros,
+            },
+            prefer="count=exact",
+        )
+        clientes = resultado.get("data", []) if isinstance(resultado, dict) else []
+        total = int(resultado.get("total", 0)) if isinstance(resultado, dict) else 0
+    else:
+        where: list[str] = []
+        valores: list[object] = []
+        agora = agora_utc().isoformat()
+        limite_vencimento = (agora_utc() + timedelta(days=7)).isoformat()
+        if situacao == "ativos":
+            where.append("vigencia_ate IS NOT NULL AND datetime(vigencia_ate) >= datetime(?)")
+            valores.append(agora)
+        elif situacao == "vencidos":
+            where.append("vigencia_ate IS NOT NULL AND datetime(vigencia_ate) < datetime(?)")
+            valores.append(agora)
+        elif situacao == "vencendo":
+            where.append("vigencia_ate IS NOT NULL AND datetime(vigencia_ate) BETWEEN datetime(?) AND datetime(?)")
+            valores.extend((agora, limite_vencimento))
+        elif situacao == "sem-vigencia":
+            where.append("vigencia_ate IS NULL")
+        if termo:
+            where.append("(nome LIKE ? OR telefone LIKE ? OR email LIKE ?)")
+            valores.extend((f"%{termo}%", f"%{termo}%", f"%{termo}%"))
+        condicao = f"WHERE {' AND '.join(where)}" if where else ""
+        with closing(conectar_banco()) as connection:
+            total = int(connection.execute(f"SELECT COUNT(*) FROM clientes {condicao}", valores).fetchone()[0])
+            rows = connection.execute(
+                f"SELECT id, nome, telefone, email, marca_tv, criado_em AS created_at, vigencia_ate, telas FROM clientes {condicao} ORDER BY datetime(criado_em) DESC LIMIT ? OFFSET ?",
+                (*valores, por_pagina, offset),
+            ).fetchall()
+        clientes = [dict(row) for row in rows]
+
+    response.headers["Cache-Control"] = "no-store"
+    return {"clientes": clientes, "total": total, "pagina": pagina, "por_pagina": por_pagina}
+
+
+@app.get("/api/admin/pagamentos")
+def listar_pagamentos_admin(
+    response: Response,
+    q: str = "",
+    status: str = "",
+    pagina: int = 1,
+    por_pagina: int = 50,
+    _: None = Depends(autenticar_admin),
+):
+    if status not in ("", "pending", "approved", "rejected", "cancelled", "expired", "refunded", "charged_back"):
+        raise HTTPException(status_code=422, detail="Filtro de pagamento inválido.")
+    pagina = max(1, pagina)
+    por_pagina = max(1, min(100, por_pagina))
+    offset = (pagina - 1) * por_pagina
+    termo = re.sub(r"[^A-Za-z0-9@._+\-\s]", "", q).strip()[:80]
+    where: list[str] = []
+    valores: list[object] = []
+    if status:
+        where.append("t.status = ?")
+        valores.append(status)
+    if termo:
+        where.append("(c.nome LIKE ? OR c.telefone LIKE ? OR t.payment_id_mp LIKE ?)")
+        valores.extend((f"%{termo}%", f"%{termo}%", f"%{termo}%"))
+    condicao = f"WHERE {' AND '.join(where)}" if where else ""
+    consulta = f"""
+        FROM transacoes t JOIN clientes c ON c.id = t.cliente_id
+        {condicao}
+    """
+    with closing(conectar_banco()) as connection:
+        total = int(connection.execute(f"SELECT COUNT(*) {consulta}", valores).fetchone()[0])
+        rows = connection.execute(
+            f"""
+            SELECT t.payment_id_mp, t.cliente_id, c.nome, c.telefone, t.plano_meses,
+                t.telas, t.valor, t.status, t.criado_em, t.expira_em, t.ativado_em
+            {consulta}
+            ORDER BY datetime(t.criado_em) DESC LIMIT ? OFFSET ?
+            """,
+            (*valores, por_pagina, offset),
+        ).fetchall()
+    response.headers["Cache-Control"] = "no-store"
+    return {"pagamentos": [dict(row) for row in rows], "total": total, "pagina": pagina, "por_pagina": por_pagina}
+
+
+@app.get("/api/admin/live21/jobs")
+def listar_jobs_live21_admin(
+    response: Response,
+    status: str = "",
+    pagina: int = 1,
+    por_pagina: int = 50,
+    _: None = Depends(autenticar_admin),
+):
+    if status not in ("", "queued", "processing", "succeeded", "manual_review", "failed"):
+        raise HTTPException(status_code=422, detail="Status de provisionamento inválido.")
+    pagina = max(1, pagina)
+    por_pagina = max(1, min(100, por_pagina))
+    offset = (pagina - 1) * por_pagina
+    where = "WHERE j.status = ?" if status else ""
+    values: list[object] = [status] if status else []
+    with closing(conectar_banco()) as connection:
+        total = int(
+            connection.execute(
+                f"SELECT COUNT(*) FROM live21_jobs j {where}", values
+            ).fetchone()[0]
+        )
+        rows = connection.execute(
+            f"""
+            SELECT j.id, j.payment_id_mp, j.cliente_id, c.nome, j.plano_meses, j.telas,
+                j.expected_expira_em, j.status, j.attempts, j.error_code,
+                j.criado_em, j.atualizado_em, j.concluido_em
+            FROM live21_jobs j JOIN clientes c ON c.id = j.cliente_id
+            {where}
+            ORDER BY datetime(j.criado_em) DESC LIMIT ? OFFSET ?
+            """,
+            (*values, por_pagina, offset),
+        ).fetchall()
+    response.headers["Cache-Control"] = "no-store"
+    return {"jobs": [dict(row) for row in rows], "total": total, "pagina": pagina, "por_pagina": por_pagina}
 
 
 @app.get("/arte.jpg")

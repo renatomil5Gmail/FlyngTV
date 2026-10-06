@@ -3,3 +3,5 @@
 __pycache__/
 *.py[cod]
 clientes.db
+.live21-credentials.key
+.live21-profile/
