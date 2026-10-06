@@ -242,6 +242,44 @@ def process_job(page, job: dict) -> None:
         senha=str(result["password"]),
         expira_em=job["expected_expira_em"],
     )
+    if job["source"] == "trial":
+        main.ativar_vigencia_teste_live21(int(job["cliente_id"]), job["expected_expira_em"])
+
+
+def process_job_once(job_id: int) -> bool:
+    job = main.claim_live21_job(job_id=job_id)
+    if job is None:
+        return False
+    try:
+        try:
+            sync_playwright = importlib.import_module("playwright.sync_api").sync_playwright
+        except ImportError as exc:
+            raise ManualReviewRequired("playwright_not_installed") from exc
+        PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+        with sync_playwright() as playwright:
+            context = playwright.chromium.launch_persistent_context(
+                user_data_dir=str(PROFILE_DIR),
+                headless=HEADLESS,
+                args=["--disable-dev-shm-usage"],
+            )
+            try:
+                page = context.pages[0] if context.pages else context.new_page()
+                if not ensure_dashboard(page):
+                    raise ManualReviewRequired("login_or_challenge_required")
+                process_job(page, job)
+            finally:
+                context.close()
+        main.finalizar_live21_job(job_id)
+        logger.info("Live21 inline job %s completed.", job_id)
+        return True
+    except ManualReviewRequired as exc:
+        main.finalizar_live21_job(job_id, error_code=str(exc)[:80])
+        logger.warning("Live21 inline job %s needs review (%s).", job_id, str(exc)[:80])
+        return False
+    except Exception as exc:
+        main.finalizar_live21_job(job_id, error_code=type(exc).__name__[:80])
+        logger.warning("Live21 inline job %s failed (%s).", job_id, type(exc).__name__)
+        return False
 
 
 def run_worker() -> None:

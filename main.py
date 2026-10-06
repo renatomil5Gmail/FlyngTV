@@ -6,6 +6,7 @@ import hmac
 import logging
 import calendar
 import unicodedata
+import uuid
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -14,7 +15,7 @@ import mercadopago
 import requests
 from cryptography.fernet import Fernet, InvalidToken
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field, field_validator
@@ -33,6 +34,8 @@ logger = logging.getLogger(__name__)
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "").strip()
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 LIVE21_CREDENTIAL_KEY = os.getenv("LIVE21_CREDENTIAL_KEY", "").strip()
+LIVE21_INLINE_MODE = os.getenv("LIVE21_INLINE_MODE", "off").strip().lower()
+LIVE21_TEST_CUSTOMER_PHONE = re.sub(r"\D", "", os.getenv("LIVE21_TEST_CUSTOMER_PHONE", ""))
 admin_security = HTTPBasic()
 MP_ACCESS_TOKEN = os.getenv("MERCADOPAGO_TOKEN")
 MP_WEBHOOK_SECRET = os.getenv("MERCADOPAGO_WEBHOOK_SECRET")
@@ -107,6 +110,7 @@ def criar_tabelas():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 payment_id_mp TEXT NOT NULL UNIQUE REFERENCES transacoes(payment_id_mp),
                 cliente_id INTEGER NOT NULL REFERENCES clientes(id),
+                source TEXT NOT NULL DEFAULT 'payment' CHECK (source IN ('payment', 'trial')),
                 plano_meses INTEGER NOT NULL,
                 telas INTEGER NOT NULL,
                 expected_expira_em TEXT NOT NULL,
@@ -133,6 +137,12 @@ def criar_tabelas():
                 CHECK ((usuario_cifrado IS NOT NULL AND senha_cifrada IS NOT NULL) OR dados_cifrados IS NOT NULL)
             );
             """
+        )
+        colunas_jobs = {row["name"] for row in connection.execute("PRAGMA table_info(live21_jobs)")}
+        if "source" not in colunas_jobs:
+            connection.execute("ALTER TABLE live21_jobs ADD COLUMN source TEXT NOT NULL DEFAULT 'payment'")
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS live21_trial_active_customer_unique ON live21_jobs(cliente_id) WHERE source = 'trial' AND status IN ('queued', 'processing')"
         )
         colunas_live21 = {
             row["name"] for row in connection.execute("PRAGMA table_info(live21_contas)")
@@ -687,20 +697,22 @@ def obter_conta_live21_cliente(cliente_id: int) -> dict | None:
         raise HTTPException(status_code=500, detail="Não foi possível descriptografar a conta Live21 vinculada.") from exc
 
 
-def claim_live21_job(lease_minutes: int = 5) -> dict | None:
+def claim_live21_job(lease_minutes: int = 5, job_id: int | None = None) -> dict | None:
     now = agora_utc()
     stale_before = (now - timedelta(minutes=lease_minutes)).isoformat()
     with closing(conectar_banco()) as connection:
         connection.execute("BEGIN IMMEDIATE")
+        job_filter = "AND j.id = ?" if job_id is not None else ""
+        params: tuple[object, ...] = (stale_before, job_id) if job_id is not None else (stale_before,)
         job = connection.execute(
-            """
+            f"""
             SELECT j.id FROM live21_jobs j
             WHERE j.attempts < 3 AND (
                 j.status = 'queued' OR (j.status = 'processing' AND j.leased_em < ?)
-            )
+            ) {job_filter}
             ORDER BY j.criado_em ASC LIMIT 1
             """,
-            (stale_before,),
+            params,
         ).fetchone()
         if job is None:
             connection.commit()
@@ -711,9 +723,10 @@ def claim_live21_job(lease_minutes: int = 5) -> dict | None:
         )
         claimed = connection.execute(
             """
-            SELECT j.id, j.payment_id_mp, j.cliente_id, j.plano_meses, j.telas, j.expected_expira_em, j.attempts,
-                c.nome, c.email, c.telefone, c.marca_tv
+            SELECT j.id, j.payment_id_mp, j.cliente_id, j.source, j.plano_meses, j.telas, j.expected_expira_em, j.attempts,
+                c.nome, c.email, c.telefone, c.marca_tv, t.valor
             FROM live21_jobs j JOIN clientes c ON c.id = j.cliente_id
+            LEFT JOIN transacoes t ON t.payment_id_mp = j.payment_id_mp
             WHERE j.id = ?
             """,
             (job["id"],),
@@ -743,6 +756,32 @@ def finalizar_live21_job(job_id: int, *, error_code: str | None = None) -> None:
         connection.execute(
             "UPDATE live21_jobs SET status = ?, error_code = ?, leased_em = NULL, atualizado_em = ?, concluido_em = ? WHERE id = ?",
             (status, error_code, now, completed_at, job_id),
+        )
+        connection.commit()
+
+
+def ativar_vigencia_teste_live21(cliente_id: int, vigencia_ate: str) -> None:
+    with closing(conectar_banco()) as connection:
+        cliente = connection.execute(
+            "SELECT supabase_id FROM clientes WHERE id = ?",
+            (cliente_id,),
+        ).fetchone()
+    if cliente is None:
+        raise HTTPException(status_code=404, detail="Cadastro do teste não encontrado.")
+    if supabase_configurado():
+        if not cliente["supabase_id"]:
+            raise HTTPException(status_code=503, detail="Cadastro do teste sem vínculo Supabase.")
+        requisicao_supabase(
+            "PATCH",
+            "clientes",
+            params={"id": f"eq.{cliente['supabase_id']}"},
+            payload={"vigencia_ate": vigencia_ate, "telas": 1},
+            prefer="return=minimal",
+        )
+    with closing(conectar_banco()) as connection:
+        connection.execute(
+            "UPDATE clientes SET vigencia_ate = ?, telas = 1, atualizado_em = ? WHERE id = ?",
+            (vigencia_ate, agora_utc().isoformat(), cliente_id),
         )
         connection.commit()
 
@@ -866,6 +905,47 @@ def registrar_status_pagamento(payment_id: str, payment: dict) -> dict | None:
         "status": status,
         "vigencia_ate": vigencia_ate.isoformat() if vigencia_ate else None,
     }
+
+
+def processar_job_live21_inline(job_id: int) -> None:
+    try:
+        from live21_worker import process_job_once
+
+        process_job_once(job_id)
+    except Exception as exc:
+        logger.warning("Live21 inline job %s failed (%s).", job_id, type(exc).__name__)
+        finalizar_live21_job(job_id, error_code=type(exc).__name__[:80])
+
+
+def agendar_job_live21_inline(background_tasks: BackgroundTasks, payment_id: str) -> None:
+    if LIVE21_INLINE_MODE != "test":
+        return
+    with closing(conectar_banco()) as connection:
+        job = connection.execute(
+            """
+            SELECT j.id, j.status, j.leased_em, c.telefone
+            FROM live21_jobs j JOIN clientes c ON c.id = j.cliente_id
+            WHERE j.payment_id_mp = ?
+            """,
+            (payment_id,),
+        ).fetchone()
+    if job is None or job["status"] not in ("queued", "processing"):
+        return
+    if not LIVE21_TEST_CUSTOMER_PHONE:
+        with closing(conectar_banco()) as connection:
+            connection.execute(
+                "UPDATE live21_jobs SET status = 'manual_review', error_code = 'test_phone_not_configured', atualizado_em = ? WHERE id = ? AND status = 'queued'",
+                (agora_utc().isoformat(), job["id"]),
+            )
+            connection.commit()
+        return
+    if normalizar_telefone(str(job["telefone"])) != normalizar_telefone(LIVE21_TEST_CUSTOMER_PHONE):
+        return
+    if job["status"] == "processing":
+        lease_time = interpretar_data(job["leased_em"])
+        if lease_time and agora_utc() - lease_time < timedelta(minutes=5):
+            return
+    background_tasks.add_task(processar_job_live21_inline, int(job["id"]))
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -1169,24 +1249,73 @@ def configuracao_publica():
 
 
 @app.post("/api/teste-gratis")
-def solicitar_teste_gratis(req: CadastroClienteRequest):
+def solicitar_teste_gratis(req: CadastroClienteRequest, background_tasks: BackgroundTasks):
     garantir_backend_clientes()
+    modo_teste = LIVE21_INLINE_MODE == "test"
+    if not modo_teste:
+        raise HTTPException(
+            status_code=503,
+            detail="O teste grátis automático está desativado. Configure o modo de teste no ambiente do servidor.",
+        )
+    if not LIVE21_TEST_CUSTOMER_PHONE:
+        raise HTTPException(status_code=503, detail="Configure LIVE21_TEST_CUSTOMER_PHONE antes de habilitar o teste no Render.")
+    if normalizar_telefone(req.telefone) != normalizar_telefone(LIVE21_TEST_CUSTOMER_PHONE):
+        raise HTTPException(status_code=403, detail="O modo de teste aceita somente o telefone allowlisted.")
+    if not req.nome.upper().startswith("RPA TESTE") or req.telas != 1:
+        raise HTTPException(status_code=422, detail="Use um nome iniciado por RPA TESTE e uma tela no teste Render.")
+
+    cliente = None
     if supabase_configurado():
         cliente = buscar_cliente_supabase(req.telefone)
-    else:
+        if cliente is not None:
+            cliente = cachear_cliente_supabase(cliente)
+    if cliente is None and not supabase_configurado():
         with closing(conectar_banco()) as connection:
             cliente = connection.execute(
-                "SELECT id FROM clientes WHERE telefone = ?", (req.telefone,)
+                "SELECT id FROM clientes WHERE telefone = ?", (normalizar_telefone(req.telefone),)
             ).fetchone()
-    if cliente is not None:
-        raise HTTPException(
-            status_code=409,
-            detail="Este WhatsApp já possui cadastro. Consulte seu cadastro ou fale com o suporte para solicitar o teste.",
+    if cliente is None:
+        cliente = cadastrar_cliente(req)
+        cliente_id = int(cliente["cliente_id"])
+    elif isinstance(cliente, dict):
+        cliente_id = int(cliente["id"])
+    else:
+        cliente_id = int(cliente["id"])
+
+    with closing(conectar_banco()) as connection:
+        previous = connection.execute(
+            "SELECT payment_id_mp, status FROM live21_jobs WHERE cliente_id = ? AND source = 'trial' ORDER BY id DESC LIMIT 1",
+            (cliente_id,),
+        ).fetchone()
+    if previous and previous["status"] == "succeeded":
+        return {"status": "succeeded", "mensagem": "O teste allowlisted já foi provisionado."}
+    if previous and previous["status"] in ("queued", "processing"):
+        agendar_job_live21_inline(background_tasks, str(previous["payment_id_mp"]))
+        return {"status": previous["status"], "mensagem": "O teste já está na fila; não foi criada uma solicitação duplicada."}
+
+    agora = agora_utc()
+    expira_em = agora + timedelta(days=30)
+    trial_payment_id = f"trial-{uuid.uuid4().hex}"
+    with closing(conectar_banco()) as connection:
+        connection.execute(
+            """
+            INSERT INTO transacoes
+                (payment_id_mp, cliente_id, plano_meses, telas, valor, status, criado_em, expira_em)
+            VALUES (?, ?, 1, 1, 0, 'trial', ?, ?)
+            """,
+            (trial_payment_id, cliente_id, agora.isoformat(), expira_em.isoformat()),
         )
-    raise HTTPException(
-        status_code=503,
-        detail="Ainda não é possível liberar o teste automaticamente porque falta configurar a integração oficial da Live21. Nenhum cadastro de teste foi criado. Fale com o suporte.",
-    )
+        connection.execute(
+            """
+            INSERT INTO live21_jobs
+                (payment_id_mp, cliente_id, source, plano_meses, telas, expected_expira_em, status, criado_em, atualizado_em)
+            VALUES (?, ?, 'trial', 1, 1, ?, 'queued', ?, ?)
+            """,
+            (trial_payment_id, cliente_id, expira_em.isoformat(), agora.isoformat(), agora.isoformat()),
+        )
+        connection.commit()
+    agendar_job_live21_inline(background_tasks, trial_payment_id)
+    return {"status": "queued", "mensagem": "Pedido de teste enviado para provisionamento."}
 
 
 @app.get("/api/mercadopago/diagnostico")
@@ -1246,7 +1375,7 @@ def validar_assinatura_webhook(signature: str | None, request_id: str | None, da
 
 
 @app.post("/webhook/mercadopago")
-async def webhook_mercadopago(request: Request):
+async def webhook_mercadopago(request: Request, background_tasks: BackgroundTasks):
     if not MP_WEBHOOK_SECRET:
         raise HTTPException(status_code=503, detail="Webhook ainda não configurado no servidor.")
 
@@ -1300,6 +1429,7 @@ async def webhook_mercadopago(request: Request):
             raise HTTPException(status_code=503, detail="Pagamento confirmado antes do registro; o Mercado Pago deve reenviar o webhook.")
         return {"recebido": True, "ignorado": True}
 
+    agendar_job_live21_inline(background_tasks, str(payment["id"]))
     return {"recebido": True}
 
 
@@ -1444,7 +1574,7 @@ def gerar_pix(req: GerarPixRequest):
 
 
 @app.get("/api/status-pagamento/{payment_id}")
-def status_pagamento(payment_id: str):
+def status_pagamento(payment_id: str, background_tasks: BackgroundTasks):
     with closing(conectar_banco()) as connection:
         transacao = connection.execute(
             """
@@ -1470,6 +1600,7 @@ def status_pagamento(payment_id: str):
     atualizado = registrar_status_pagamento(payment_id, payment)
     if atualizado is None:
         raise HTTPException(status_code=502, detail="Os dados do pagamento não correspondem à transação registrada.")
+    agendar_job_live21_inline(background_tasks, payment_id)
 
     return {
         "status": atualizado["status"],

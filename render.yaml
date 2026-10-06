@@ -6,7 +6,7 @@ services:
     runtime: python
     plan: free
     region: ohio
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements-worker.txt && python -m playwright install chromium --only-shell
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/saude
     envVars:
@@ -26,3 +26,19 @@ services:
         value: "552799763143"
       - key: PIX_EXPIRATION_MINUTES
         value: 30
+      - key: LIVE21_PANEL_URL
+        value: https://cms.gerencia.ovh
+      - key: LIVE21_PANEL_USERNAME
+        sync: false
+      - key: LIVE21_PANEL_PASSWORD
+        sync: false
+      - key: LIVE21_CREDENTIAL_KEY
+        sync: false
+      - key: LIVE21_TEST_CUSTOMER_PHONE
+        sync: false
+      - key: LIVE21_INLINE_MODE
+        value: "off"
+      - key: LIVE21_HEADLESS
+        value: "true"
+      - key: LIVE21_PROFILE_DIR
+        value: .live21-profile
